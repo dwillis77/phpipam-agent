@@ -8,9 +8,10 @@
 # ******************************/
 $config['type'] = "mysql";
 
-# set agent key
+# set agent key (unique to each agent)
+# create the agent in the phpIPAM GUI first and put the key here
 # ******************************/
-$config['key'] = "aad984d8314fcf644d3fb46886ea461f";
+$config['key'] = "";
 
 # set scan method and path to ping file
 #	ping, fping or pear
