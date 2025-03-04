@@ -69,7 +69,7 @@ class Common_functions  {
 	/**
 	 * Database
 	 *
-	 * @var mixed
+	 * @var Database_PDO
 	 * @access protected
 	 */
 	protected $Database;
@@ -77,7 +77,7 @@ class Common_functions  {
 	/**
 	 * Result
 	 *
-	 * @var mixed
+	 * @var Result
 	 * @access public
 	 */
 	public $Result;
@@ -85,7 +85,7 @@ class Common_functions  {
 	/**
 	 * Log
 	 *
-	 * @var mixed
+	 * @var Logging
 	 * @access public
 	 */
 	public $Log;
@@ -93,7 +93,7 @@ class Common_functions  {
 	/**
 	 * Net_IPv4
 	 *
-	 * @var mixed
+	 * @var Net_IPv4
 	 * @access protected
 	 */
 	protected $Net_IPv4;
@@ -101,15 +101,25 @@ class Common_functions  {
 	/**
 	 * Net_IPv6
 	 *
-	 * @var mixed
+	 * @var Net_IPv6
 	 * @access protected
 	 */
 	protected $Net_IPv6;
 
 	/**
-	 * NET_DNS object
+	 * (array) IP address types from Addresses object
+	 *
+	 * (default value: null)
 	 *
 	 * @var mixed
+	 * @access public
+	 */
+	public $address_types = null;
+
+	/**
+	 * NET_DNS object
+	 *
+	 * @var NET_DNS
 	 * @access protected
 	 */
 	protected $DNS2;
@@ -117,7 +127,7 @@ class Common_functions  {
 	/**
 	 * debugging flag
 	 *
-	 * @var mixed
+	 * @var bool
 	 * @access protected
 	 */
 	protected $debugging;
@@ -154,8 +164,8 @@ class Common_functions  {
 	 * @return int
 	 */
 	public function cmp_version_strings($verA, $verB) {
-		$a = explode('.', $verA);
-		$b = explode('.', $verB);
+		$a = array_pad(pf_explode('.', $verA), 3, 0);
+		$b = array_pad(pf_explode('.', $verB), 3, 0);
 
 		if ($a[0] != $b[0]) return $a[0] < $b[0] ? -1 : 1;			// 1.x.y is less than 2.x.y
 		if (strcmp($a[1], $b[1]) != 0) return strcmp($a[1], $b[1]);	// 1.21.y is less than 1.3.y
@@ -163,6 +173,20 @@ class Common_functions  {
 		return 0;
 	}
 
+	/**
+	 * Fetch mysql version info
+	 *
+	 * @access public
+	 * @return string
+	 */
+	public function fetch_mysql_version () {
+		# fetch
+		try { $result = $this->Database->getObjectQuery("SELECT VERSION() AS 'version';"); }
+		catch (Exception $e) {
+			return "";
+		}
+		return is_object($result) ? $result->version : "";
+	}
 
 
 
@@ -187,7 +211,7 @@ class Common_functions  {
 	 */
 	public function fetch_all_objects ($table=null, $sortField="id", $sortAsc=true) {
 		# null table
-		if(is_null($table)||strlen($table)==0) return false;
+		if(is_null($table)||is_blank($table)) return false;
 
 		$cached_item = $this->cache_check("fetch_all_objects", "t=$table f=$sortField o=$sortAsc");
 		if(is_object($cached_item)) return $cached_item->result;
@@ -215,14 +239,14 @@ class Common_functions  {
 	 *
 	 * @access public
 	 * @param mixed $table
-	 * @param mixed $method (default: null)
+	 * @param mixed $method
 	 * @param mixed $value
-	 * @return false|object
+	 * @return object|false
 	 */
-	public function fetch_object ($table=null, $method=null, $value) {
+	public function fetch_object ($table, $method, $value) {
 		// checks
 		if(!is_string($table)) return false;
-		if(strlen($table)==0)  return false;
+		if(is_blank($table))  return false;
 		if(is_null($method))   return false;
 		if(is_null($value))    return false;
 		if($value===0)         return false;
@@ -260,11 +284,11 @@ class Common_functions  {
 	 * @param bool $sortAsc (default: true)
 	 * @param bool $like (default: false)
 	 * @param array|mixed $result_fields (default: *)
-	 * @return bool|array
+	 * @return array|false
 	 */
 	public function fetch_multiple_objects ($table, $field, $value, $sortField = 'id', $sortAsc = true, $like = false, $result_fields = "*") {
 		# null table
-		if(is_null($table)||strlen($table)==0) return false;
+		if(is_null($table)||is_blank($table)) return false;
 		else {
 			try { $res = $this->Database->findObjects($table, $field, $value, $sortField, $sortAsc, $like, false, $result_fields); }
 			catch (Exception $e) {
@@ -356,7 +380,7 @@ class Common_functions  {
 	 *
 	 * @access public
 	 * @param bool|mixed $subnetId
-	 * @return bool|array
+	 * @return array|false
 	 */
 	public function changelog_mail_get_recipients ($subnetId = false) {
     	// fetch all users with mailNotify
@@ -401,7 +425,7 @@ class Common_functions  {
 	 * fetches settings from database
 	 *
 	 * @access private
-	 * @return mixed
+	 * @return object|false
 	 */
 	public function get_settings () {
 		if (is_object($this->settings))
@@ -412,6 +436,14 @@ class Common_functions  {
 
 		if (!is_object($settings))
 			return false;
+
+		// Escape ' & " charaters
+		if (property_exists($settings, 'siteTitle'))
+			$settings->siteTitle = escape_input($settings->siteTitle);
+
+		// default dbversion for older releases
+		if (!property_exists($settings, 'dbversion'))
+			$settings->dbversion = 0;
 
 		#save
 		$this->settings = $settings;
@@ -505,7 +537,8 @@ class Common_functions  {
             'vrf'=>'vrfId',
             'changelog'=>'cid',
             'widgets'=>'wid',
-            'deviceTypes'=>'tid'];
+            'deviceTypes'=>'tid',
+            'nominatim_cache'=>'sha256'];
 
         return isset($mapings[$table]) ? $mapings[$table] : 'id';
     }
@@ -516,7 +549,7 @@ class Common_functions  {
      * @access protected
      * @param mixed $table
      * @param mixed $id
-     * @return bool|array
+     * @return object|false
      */
     protected function cache_check ($table, $id) {
         // get identifier
@@ -534,7 +567,7 @@ class Common_functions  {
 	 *
 	 * @access public
 	 * @param bool $debug (default: false)
-	 * @return void
+	 * @return bool
 	 */
 	public function set_debugging ($debug = false) {
 		$this->debugging = $debug==true ? true : false;
@@ -620,6 +653,71 @@ class Common_functions  {
 	}
 
 	/**
+	 * Remove common XSS vectors.
+	 * This function is not and will never be 100% effective.
+	 *
+	 * TODO: Switch user instructions to use markdown. Sanitising raw HTML is impossible.
+	 *
+	 * @param   string  $html
+	 * @return  string
+	 */
+	public function noxss_html($html) {
+		if (!is_string($html) || is_blank($html))
+			return "";
+
+		// Convert encoding to UTF-8
+		$html = mb_convert_encoding($html, 'HTML-ENTITIES', 'UTF-8');
+
+		// Throw loadHTML() parsing errors
+		$err_mode = libxml_use_internal_errors(false);
+		$php_reporting = error_reporting(0);
+
+		try {
+			$dom = new \DOMDocument();
+			if ($dom->loadHTML("<html>".$html."</html>", LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NOBLANKS | LIBXML_NOWARNING | LIBXML_NOERROR) === false)
+				return "";
+
+			$banned_elements = ['script', 'iframe', 'embed', 'object'];
+			$remove_elements = [];
+
+			$elements = $dom->getElementsByTagName('*');
+
+			if (is_object($elements) && $elements->length>0) {
+				foreach($elements as $e) {
+					if (in_array($e->nodeName, $banned_elements)) {
+						$remove_elements[] = $e;
+						continue;
+					}
+
+					if (!$e->hasAttributes())
+						continue;
+
+					// remove on* HTML event attributes
+					foreach ($e->attributes as $attr) {
+						if (substr($attr->nodeName,0,2) == "on")
+							$e->removeAttribute($attr->nodeName);
+					}
+				}
+
+				// Remove banned elements
+				foreach($remove_elements as $e)
+					$e->parentNode->removeChild($e);
+
+				// Return sanitised HTML
+				$html = str_replace(['<html>', '</html>'], '', $dom->saveHTML());
+			}
+		} catch (Exception $e) {
+			$html = "";
+		}
+
+		// restore error mode
+		libxml_use_internal_errors($err_mode);
+		error_reporting($php_reporting);
+
+		return is_string($html) ? $html : "";
+	}
+
+	/**
 	 * Changes empty array fields to specified character
 	 *
 	 * @access public
@@ -635,7 +733,7 @@ class Common_functions  {
         		$out[$k] = $v;
     		}
     		else {
-    			if(is_null($v) || strlen($v)==0) {
+    			if(is_null($v) || is_blank($v)) {
     				$out[$k] = 	$char;
     			} else {
     				$out[$k] = $v;
@@ -659,7 +757,7 @@ class Common_functions  {
     	// loop
     	if(is_array($fields)) {
 			foreach($fields as $k=>$v) {
-				if(is_null($v) || strlen($v)==0) {
+				if(is_null($v) || is_blank($v)) {
 				}
 				else {
 					$out[$k] = $v;
@@ -703,7 +801,7 @@ class Common_functions  {
 	 * @return string
 	 */
 	public function strip_xss ($input) {
-		return htmlspecialchars($input, ENT_QUOTES, 'UTF-8');
+		return htmlspecialchars($input ?: '', ENT_QUOTES, 'UTF-8');
 	}
 
 	/**
@@ -726,7 +824,7 @@ class Common_functions  {
 	 * @return int|mixed
 	 */
 	public function verify_checkbox ($field) {
-		return (!isset($field) || strlen($field)==0) ? 0 : escape_input($field);
+		return (!isset($field) || is_blank($field)) ? 0 : escape_input($field);
 	}
 
 	/**
@@ -778,7 +876,7 @@ class Common_functions  {
 
 		foreach($logs as $key=>$req) {
 			# ignore __ and PHPSESSID
-			if( substr($key,0,2)=='__' || substr($key,0,9)=='PHPSESSID' || substr($key,0,4)=='pass' || $key=='plainpass' )
+			if( substr($key,0,2)=='__' || substr($key,0,9)=='PHPSESSID' || substr($key,0,4)=='pass' || $key=='plainpass' || $key=='values')
 				continue;
 
 			// NOTE The colon character ":" is reserved as it used in array_to_log for implode/explode.
@@ -787,7 +885,7 @@ class Common_functions  {
 			if ($req == "mac")
 				$req = strtr($req, ':', '-'); # Mac-addresses, replace Colon U+003A with hyphen U+002D
 
-			if (strpos($req, ':')!==false)
+			if (is_string($req) && strpos($req, ':')!==false)
 				$req = strtr($req, ':', '.'); # Default, replace Colon U+003A with Full Stop U+002E.
 
 			$result .= ($changelog===true) ? "[$key]: $req<br>" : " ". $key . ": " . $req . "<br>";
@@ -808,7 +906,7 @@ class Common_functions  {
 	    $hms = "";
 
 	    // get the number of hours
-	    $hours = intval(intval($sec) / 3600);
+	    $hours = intval($sec / 3600);
 
 	    // add to $hms, with a leading 0 if asked for
 	    $hms .= ($padHours)
@@ -816,13 +914,13 @@ class Common_functions  {
 	          : $hours. ':';
 
 	    // get the seconds
-	    $minutes = intval(($sec / 60) % 60);
+	    $minutes = intval($sec / 60) % 60;
 
 	    // then add to $hms (with a leading 0 if needed)
 	    $hms .= str_pad($minutes, 2, "0", STR_PAD_LEFT). ':';
 
 	    // seconds
-	    $seconds = intval($sec % 60);
+	    $seconds = intval($sec) % 60;
 
 	    // add to $hms, again with a leading 0 if needed
 	    $hms .= str_pad($seconds, 2, "0", STR_PAD_LEFT);
@@ -840,6 +938,9 @@ class Common_functions  {
 	 * @return mixed
 	 */
 	public function shorten_text($text, $chars = 25) {
+		if (is_blank($text))
+			return '';
+
 		// minimum length = 8
 		if ($chars < 8) $chars = 8;
 		// count input text size
@@ -861,7 +962,7 @@ class Common_functions  {
 	 *      2 : 00-66-23-33-55-66
 	 *      3 : 0066.2333.5566
 	 *      4 : 006623335566
-	 * @return mixed
+	 * @return string
 	 */
 	public function reformat_mac_address ($mac, $format = 1) {
     	// strip al tags first
@@ -890,58 +991,101 @@ class Common_functions  {
 	}
 
 	/**
+	 * Return port number used to access the site
+	 *
+	 * @access  private
+	 * @return  int
+	 */
+	private function httpPort() {
+		if (Config::ValueOf('trust_x_forwarded_headers') === true) {
+			// If only HTTP_X_FORWARDED_PROTO='https' is set assume port=443. Override if required by setting HTTP_X_FORWARDED_PORT
+			if (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && !isset($_SERVER['HTTP_X_FORWARDED_PORT'])) {
+				return ($_SERVER['HTTP_X_FORWARDED_PROTO'] == 'https') ? 443 : 80;
+			}
+			if (isset($_SERVER['HTTP_X_FORWARDED_PORT'])) {
+				return $_SERVER['HTTP_X_FORWARDED_PORT'];
+			}
+		}
+		if (isset($_SERVER['SERVER_PORT'])) {
+			return $_SERVER['SERVER_PORT'];
+		}
+
+		return 80;
+	}
+
+	/**
 	* Returns true if site is accessed with https
 	*
 	* @access public
 	* @return bool
 	*/
-	public function isHttps() {
+	public function isHttps () {
+		if (Config::ValueOf('trust_x_forwarded_headers') === true) {
+			if (isset($_SERVER['HTTP_X_FORWARDED_PROTO'])) {
+				return ($_SERVER['HTTP_X_FORWARDED_PROTO'] == 'https');
+			}
+			if (isset($_SERVER['HTTP_X_FORWARDED_SSL']) && $_SERVER['HTTP_X_FORWARDED_SSL'] == 'on') {
+				return true;
+			}
+		}
 		if (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] == 'on') {
 			return true;
 		}
-		if (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] == 'https') {
+		if ($this->httpPort() == 443) {
 			return true;
 		}
-		if (!empty($_SERVER['HTTP_X_FORWARDED_SSL']) && $_SERVER['HTTP_X_FORWARDED_SSL'] == 'on') {
-			return true;
-		}
+
 		return false;
+	}
+
+	/**
+	 * Get IP address of connected user
+	 *
+	 * @return string|null
+	 */
+	protected function get_user_ip() {
+		if (php_sapi_name() === "cli")
+			return null;
+
+		if (Config::ValueOf('trust_x_forwarded_headers') === true) {
+			if (isset($_SERVER['HTTP_X_FORWARDED_FOR']) && filter_var($_SERVER['HTTP_X_FORWARDED_FOR'], FILTER_VALIDATE_IP)) {
+				return $_SERVER['HTTP_X_FORWARDED_FOR'];
+			}
+		}
+
+		if (isset($_SERVER['REMOTE_ADDR']) && filter_var($_SERVER['REMOTE_ADDR'], FILTER_VALIDATE_IP))
+			return $_SERVER['REMOTE_ADDR'];
+
+		return null;
 	}
 
 	/**
 	 * Create URL for base
 	 *
 	 * @access public
-	 * @return mixed
+	 * @return string
 	 */
 	public function createURL () {
-		// SSL on standard port
-		if(($_SERVER['HTTPS'] == 'on') || ($_SERVER['SERVER_PORT'] == 443)) {
-			$url = "https://".$_SERVER['HTTP_HOST'];
-		}
-		// reverse proxy doing SSL offloading
-		elseif(isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] == 'https') {
-			if (isset($_SERVER['HTTP_X_FORWARDED_HOST'])) {
-				$url = "https://".$_SERVER['HTTP_X_FORWARDED_HOST'];
-			}
-			else {
-				$url = "https://".$_SERVER['HTTP_HOST'];
-			}
-		}
-		elseif(isset($_SERVER['HTTP_X_SECURE_REQUEST'])  && $_SERVER['HTTP_X_SECURE_REQUEST'] == 'true') {
-			$url = "https://".$_SERVER['SERVER_NAME'];
-		}
-		// custom port
-		elseif($_SERVER['SERVER_PORT']!="80" && (isset($_SERVER['HTTP_X_FORWARDED_PORT']) && $_SERVER['HTTP_X_FORWARDED_PORT']!="80")) {
-			$url = "http://".$_SERVER['SERVER_NAME'].":".$_SERVER['SERVER_PORT'];
-		}
-		// normal http
-		else {
-			$url = "http://".$_SERVER['HTTP_HOST'];
-		}
+		$proto = $this->isHttps() ? 'https' : 'http';
 
-		//result
-		return $url;
+		if (Config::ValueOf('trust_x_forwarded_headers') === true && isset($_SERVER['HTTP_X_FORWARDED_HOST'])) {
+			$url = $_SERVER['HTTP_X_FORWARDED_HOST'];
+		} elseif (isset($_SERVER['HTTP_HOST'])) {
+			$url = $_SERVER['HTTP_HOST'];
+		} elseif (isset($_SERVER['SERVER_NAME'])) {
+			$url = $_SERVER['SERVER_NAME'];
+		} else {
+			$url = "localhost";
+		}
+		$host = parse_url("$proto://$url", PHP_URL_HOST) ?: "localhost";
+
+		$port = $this->httpPort();
+
+		if (($proto == "http" && $port == 80) || ($proto == "https" && $port == 443)) {
+			return "$proto://$host";
+		} else {
+			return "$proto://$host:$port";
+		}
 	}
 
 	/**
@@ -950,15 +1094,18 @@ class Common_functions  {
 	 *	source: https://css-tricks.com/snippets/php/find-urls-in-text-make-links/
 	 *
 	 * @access public
-	 * @param mixed $field_type
-	 * @param mixed $text
-	 * @return mixed
+ 	 * @param string $text
+	 * @param string $field_type
+	 * @return string
 	 */
 	public function create_links ($text, $field_type = "varchar") {
+		if (!is_string($text))
+			return $text;
+
 		// create links only for varchar fields
 		if (strpos($field_type, "varchar")!==false) {
 			// regular expression
-			$reg_exUrl = "#((http|https|ftp|ftps|telnet|ssh)://\S+[^\s.,>)\];'\"!?])#";
+			$reg_exUrl = "#((http|https|ftp|ftps|telnet|ssh|rdp)://\S+[^\s.,>)\];'\"!?])#";
 
 			// Check if there is a url in the text, make the urls hyper links
 			$text = preg_replace($reg_exUrl, "<a href='$0' target='_blank'>$0</a>", $text);
@@ -1023,7 +1170,11 @@ class Common_functions  {
 	 * @param bool $permit_root_domain
 	 * @return bool|mixed
 	 */
-	public function validate_hostname($hostname, $permit_root_domain=true) {
+	public function validate_hostname($hostname = "", $permit_root_domain=true) {
+		// null hostname is invalid
+		if(is_null($hostname)) {
+			return false;
+		}
     	// first validate hostname
     	$valid =  (preg_match("/^([a-z_\d](-*[a-z_\d])*)(\.([a-z_\d](-*[a-z_\d])*))*$/i", $hostname) 	//valid chars check
 	            && preg_match("/^.{1,253}$/", $hostname) 										//overall length check
@@ -1065,7 +1216,7 @@ class Common_functions  {
     	// first put it to common format (1)
     	$mac = $this->reformat_mac_address ($mac);
     	// we permit empty
-        if (strlen($mac)==0)                                                            { return true; }
+        if (is_blank($mac))                                                            { return true; }
     	elseif (preg_match('/^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/', $mac) != 1)   { return false; }
     	else                                                                            { return true; }
 	}
@@ -1079,7 +1230,7 @@ class Common_functions  {
      */
     public function validate_json_string($string) {
         // try to decode
-        json_decode($string);
+        pf_json_decode($string);
         // check for error
         $parse_result = json_last_error_msg();
         // save possible error
@@ -1104,8 +1255,8 @@ class Common_functions  {
 		$country = strtolower($country);
 		// set regexes
 		$country_regex = array(
-			'united kingdom' => '/\\A\\b[A-Z]{1,2}[0-9][A-Z0-9]? [0-9][ABD-HJLNP-UW-Z]{2}\\b\\z/i',
-			'england'        => '/\\A\\b[A-Z]{1,2}[0-9][A-Z0-9]? [0-9][ABD-HJLNP-UW-Z]{2}\\b\\z/i',
+			'united kingdom' => '/^([A-Z][A-HJ-Y]?[0-9][A-Z0-9]? ?[0-9][A-Z]{2}|GIR ?0A{2})$/i',
+			'england'        => '/^([A-Z][A-HJ-Y]?[0-9][A-Z0-9]? ?[0-9][A-Z]{2}|GIR ?0A{2})$/i',
 			'canada'         => '/\\A\\b[ABCEGHJKLMNPRSTVXY][0-9][A-Z][ ]?[0-9][A-Z][0-9]\\b\\z/i',
 			'italy'          => '/^[0-9]{5}$/i',
 			'deutschland'    => '/^[0-9]{5}$/i',
@@ -1150,11 +1301,11 @@ class Common_functions  {
 	/**
 	 * Transforms int to ipv4
 	 *
-	 * @access public
+	 * @access private
 	 * @param mixed $ipv4long
 	 * @return mixed
 	 */
-	public function long2ip4($ipv4long) {
+	private function long2ip4($ipv4long) {
 		if (PHP_INT_SIZE==4) {
 			// As of php7.1 long2ip() no longer accepts strings.
 			// Convert unsigned int IPv4 to signed integer.
@@ -1166,11 +1317,11 @@ class Common_functions  {
 	/**
 	 * Transforms int to ipv6
 	 *
-	 * @access public
+	 * @access private
 	 * @param mixed $ipv6long
 	 * @return mixed
 	 */
-	public function long2ip6($ipv6long) {
+	private function long2ip6($ipv6long) {
 		$hex = sprintf('%032s', gmp_strval(gmp_init($ipv6long, 10), 16));
 		$ipv6 = implode(':', str_split($hex, 4));
 		// compress result
@@ -1235,6 +1386,43 @@ class Common_functions  {
 	}
 
 	/**
+	 * Returns array of address types
+	 *
+	 * @access protected
+	 * @return void
+	 */
+	protected function get_addresses_types () {
+		# from cache
+		if($this->address_types == null) {
+			# fetch
+			$types = $this->fetch_all_objects ("ipTags", "id");
+			if (!is_array($types))
+				return;
+
+			# save to array
+			$types_out = array();
+			foreach($types as $t) {
+				$types_out[$t->id] = (array) $t;
+			}
+			# save to cache
+			$this->address_types = $types_out;
+		}
+	}
+
+	/**
+	 * Translates address type from index (int) to type
+	 *
+	 *	e.g.: 0 > offline
+	 *
+	 * @access protected
+	 * @param mixed $index
+	 * @return mixed
+	 */
+	protected function translate_address_type ($index) {
+		return isset($this->address_types[$index]["type"]) ? $this->address_types[$index]["type"] : "Used";
+	}
+
+	/**
 	 * Returns text representation of json errors
 	 *
 	 * @access public
@@ -1270,6 +1458,11 @@ class Common_functions  {
 	public function curl_fetch_url($url, $headers=false, $timeout=30) {
 		$result = ['result'=>false, 'result_code'=>503, 'error_msg'=>''];
 
+		if (Config::ValueOf('offline_mode')) {
+			$result['error_msg'] = _('Internet access disabled in config.php');
+			return $result;
+		}
+
 		try {
 			$curl = curl_init();
 			curl_setopt($curl, CURLOPT_URL, $url);
@@ -1299,49 +1492,10 @@ class Common_functions  {
 			curl_close ($curl);
 
 		} catch (Exception $e) {
+			$result['error_msg'] = $e->getMessage();
 		}
 
 		return $result;
-	}
-
-	/**
-	 * Fetches latlng from googlemaps by provided address
-	 *
-	 * @access public
-	 * @param mixed $address
-	 * @return array
-	 */
-	public function get_latlng_from_address ($address) {
-		$results = array('lat' => null, 'lng' => null, 'error' => null);
-
-		// get geocode API key
-		$gmaps_api_geocode_key = Config::ValueOf('gmaps_api_geocode_key');
-
-		if(empty($gmaps_api_geocode_key)) {
-			$results['info'] = _("Geocode API key not set");
-			return $results;
-		}
-
-		# Geocode address
-		$curl = $this->curl_fetch_url('https://maps.google.com/maps/api/geocode/json?address='.rawurlencode($address).'&sensor=false&key='.rawurlencode($gmaps_api_geocode_key), ["Accept: application/json"]);
-
-		if ($curl['result'] === false) {
-			$results['error'] = _("Geocode lookup failed. Check Internet connectivity.");
-			return $results;
-		}
-
-		$output= json_decode($curl['result']);
-
-		if (isset($output->results[0]->geometry->location->lat))
-			$results['lat'] = str_replace(",", ".", $output->results[0]->geometry->location->lat);
-
-		if (isset($output->results[0]->geometry->location->lng))
-			$results['lng'] = str_replace(",", ".", $output->results[0]->geometry->location->lng);
-
-		if (isset($output->error_message))
-			$results['error'] = $output->error_message;
-
-		return $results;
 	}
 
     /**
@@ -1368,13 +1522,13 @@ class Common_functions  {
      * @access public
      * @param mixed $field
      * @param mixed $object
-     * @param string $action
      * @param mixed $timepicker_index
      * @param bool $disabled
      * @param string $set_delimiter
+     * @param string $nameSuffix
      * @return array
      */
-    public function create_custom_field_input ($field, $object, $action, $timepicker_index, $disabled = false, $set_delimiter = "") {
+    public function create_custom_field_input ($field, $object, $timepicker_index, $disabled = false, $set_delimiter = "", $nameSuffix = "") {
         # make sure it is array
 		$field  = (array) $field;
 		$object = (object) $object;
@@ -1385,30 +1539,30 @@ class Common_functions  {
         $field['nameNew'] = str_replace(" ", "___", $field['name']);
         // required
         $required = $field['Null']=="NO" ? "*" : "";
-        // set default value if adding new object
-        if ($action=="add")	{ $object->{$field['name']} = $field['Default']; }
+		// set default value if adding new object
+		if (!property_exists($object, $field['name'])) {
+			$object->{$field['name']} = $field['Default'];
+		}
 
         //set, enum
         if(substr($field['type'], 0,3) == "set" || substr($field['type'], 0,4) == "enum") {
-        	$html = $this->create_custom_field_input_set_enum ($field, $object, $disabled_text, $set_delimiter);
+        	$html = $this->create_custom_field_input_set_enum ($field, $object, $disabled_text, $set_delimiter, $nameSuffix);
         }
         //date and time picker
         elseif($field['type'] == "date" || $field['type'] == "datetime") {
-        	$res = $this->create_custom_field_input_date ($field, $object, $timepicker_index, $disabled_text);
-			$timepicker_index = $res['timepicker_index'];
-			$html             = $res ['html'];
+        	$html = $this->create_custom_field_input_date ($field, $object, $timepicker_index, $disabled_text, $nameSuffix);
         }
         //boolean
         elseif($field['type'] == "tinyint(1)") {
-        	$html = $this->create_custom_field_input_boolean ($field, $object, $disabled_text);
+        	$html = $this->create_custom_field_input_boolean ($field, $object, $disabled_text, $nameSuffix);
         }
         //text
         elseif($field['type'] == "text") {
-        	$html = $this->create_custom_field_input_textarea ($field, $object, $disabled_text);
+        	$html = $this->create_custom_field_input_textarea ($field, $object, $disabled_text, $nameSuffix);
         }
 		//default - input field
 		else {
-            $html = $this->create_custom_field_input_input ($field, $object, $disabled_text);
+            $html = $this->create_custom_field_input_input ($field, $object, $disabled_text, $nameSuffix);
 		}
 
         # result
@@ -1422,27 +1576,28 @@ class Common_functions  {
     /**
      * Creates form input field for set and enum values
      *
-     * @access public
+     * @access private
      * @param mixed $field
      * @param mixed $object
      * @param string $disabled_text
      * @param string $set_delimiter
+     * @param string $nameSuffix
      * @return array
      */
-    public function create_custom_field_input_set_enum ($field, $object, $disabled_text, $set_delimiter = "") {
+    private function create_custom_field_input_set_enum ($field, $object, $disabled_text, $set_delimiter = "", $nameSuffix = "") {
 		$html = array();
     	//parse values
     	$field['type'] = trim(substr($field['type'],0,-1));
-    	$tmp = substr($field['type'], 0,3)=="set" ? explode(",", str_replace(array("set(", "'"), "", $field['type'])) : explode(",", str_replace(array("enum(", "'"), "", $field['type']));
+    	$tmp = substr($field['type'], 0,3)=="set" ? pf_explode(",", str_replace(array("set(", "'"), "", $field['type'])) : pf_explode(",", str_replace(array("enum(", "'"), "", $field['type']));
     	//null
     	if($field['Null']!="NO") { array_unshift($tmp, ""); }
 
-    	$html[] = "<select name='$field[nameNew]' class='form-control input-sm input-w-auto' rel='tooltip' data-placement='right' title='$field[Comment]' $disabled_text>";
+    	$html[] = "<select name='$field[nameNew]$nameSuffix' class='form-control input-sm input-w-auto' rel='tooltip' data-placement='right' title='$field[Comment]' $disabled_text>";
     	foreach($tmp as $v) {
     		// set selected
 			$selected = $v==$object->{$field['name']} ? "selected='selected'" : "";
 			// parse delimiter
-			if(strlen($set_delimiter)==0) {
+			if(is_blank($set_delimiter)) {
 				// save
 		        $html[] = "<option value='$v' $selected>$v</option>";
 			}
@@ -1465,14 +1620,15 @@ class Common_functions  {
     /**
      * Creates form input field for date fields.
      *
-     * @access public
+     * @access private
      * @param mixed $field
      * @param mixed $object
      * @param mixed $timepicker_index
      * @param string $disabled_text
+     * @param string $nameSuffix
      * @return array
      */
-    public function create_custom_field_input_date ($field, $object, $timepicker_index, $disabled_text) {
+    private function create_custom_field_input_date ($field, $object, &$timepicker_index, $disabled_text, $nameSuffix = "") {
    		$html = array ();
     	// just for first
     	if($timepicker_index==0) {
@@ -1494,34 +1650,32 @@ class Common_functions  {
     	else							{ $size = 19; $class='datetimepicker';	$format = "yyyy-MM-dd"; }
 
     	//field
-    	if(!isset($object->{$field['name']}))	{ $html[] = ' <input type="text" class="'.$class.' form-control input-sm input-w-auto" data-format="'.$format.'" name="'. $field['nameNew'] .'" maxlength="'.$size.'" rel="tooltip" data-placement="right" title="'.$field['Comment'].'" '.$disabled_text.'>'. "\n"; }
-    	else								    { $html[] = ' <input type="text" class="'.$class.' form-control input-sm input-w-auto" data-format="'.$format.'" name="'. $field['nameNew'] .'" maxlength="'.$size.'" value="'. $this->strip_xss($object->{$field['name']}). '" rel="tooltip" data-placement="right" title="'.$field['Comment'].'" '.$disabled_text.'>'. "\n"; }
+    	if(!isset($object->{$field['name']}))	{ $html[] = ' <input type="text" class="'.$class.' form-control input-sm input-w-auto" data-format="'.$format.'" name="'. $field['nameNew'].$nameSuffix .'" maxlength="'.$size.'" rel="tooltip" data-placement="right" title="'.$field['Comment'].'" '.$disabled_text.'>'. "\n"; }
+    	else								    { $html[] = ' <input type="text" class="'.$class.' form-control input-sm input-w-auto" data-format="'.$format.'" name="'. $field['nameNew'].$nameSuffix .'" maxlength="'.$size.'" value="'. $this->strip_xss($object->{$field['name']}). '" rel="tooltip" data-placement="right" title="'.$field['Comment'].'" '.$disabled_text.'>'. "\n"; }
 
     	// result
-    	return array (
-					"html"             => $html,
-					"timepicker_index" => $timepicker_index
-    	              );
+		return $html;
 	}
 
     /**
      * Creates form input field for boolean fields.
      *
-     * @access public
+     * @access private
      * @param mixed $field
      * @param mixed $object
      * @param string $disabled_text
+     * @param string $nameSuffix
      * @return array
      */
-    public function create_custom_field_input_boolean ($field, $object, $disabled_text) {
+    private function create_custom_field_input_boolean ($field, $object, $disabled_text, $nameSuffix = "") {
     	$html = array ();
-    	$html[] =  "<select name='$field[nameNew]' class='form-control input-sm input-w-auto' rel='tooltip' data-placement='right' title='$field[Comment]' $disabled_text>";
+    	$html[] =  "<select name='$field[nameNew]$nameSuffix' class='form-control input-sm input-w-auto' rel='tooltip' data-placement='right' title='$field[Comment]' $disabled_text>";
     	$tmp = array(0=>"No",1=>"Yes");
     	//null
     	if($field['Null']!="NO") { $tmp[2] = ""; }
 
     	foreach($tmp as $k=>$v) {
-    		if(strlen($object->{$field['name']})==0 && $k==2)	{ $html[] = "<option value='$k' selected='selected'>"._($v)."</option>"; }
+    		if(is_blank($object->{$field['name']}) && $k==2)	{ $html[] = "<option value='$k' selected='selected'>"._($v)."</option>"; }
     		elseif($k==$object->{$field['name']})				{ $html[] = "<option value='$k' selected='selected'>"._($v)."</option>"; }
     		else											    { $html[] = "<option value='$k'>"._($v)."</option>"; }
     	}
@@ -1533,15 +1687,16 @@ class Common_functions  {
     /**
      * Creates form input field for text fields.
      *
-     * @access public
+     * @access private
      * @param mixed $field
      * @param mixed $object
      * @param string $disabled_text
+     * @param string $nameSuffix
      * @return array
      */
-    public function create_custom_field_input_textarea ($field, $object, $disabled_text) {
+    private function create_custom_field_input_textarea ($field, $object, $disabled_text, $nameSuffix = "") {
     	$html = array ();
-    	$html[] = ' <textarea class="form-control input-sm" name="'. $field['nameNew'] .'" placeholder="'. $this->print_custom_field_name ($field['name']) .'" rowspan=3 rel="tooltip" data-placement="right" title="'.$field['Comment'].'" '.$disabled_text.'>'. $object->{$field['name']}. '</textarea>'. "\n";
+    	$html[] = ' <textarea class="form-control input-sm" name="'. $field['nameNew'].$nameSuffix .'" placeholder="'. $this->print_custom_field_name ($field['name']) .'" rowspan=3 rel="tooltip" data-placement="right" title="'.$field['Comment'].'" '.$disabled_text.'>'. $object->{$field['name']}. '</textarea>'. "\n";
     	// result
     	return $html;
 	}
@@ -1549,13 +1704,14 @@ class Common_functions  {
     /**
      * Creates form input field for date fields.
      *
-     * @access public
+     * @access private
      * @param mixed $field
      * @param mixed $object
      * @param string $disabled_text
+     * @param string $nameSuffix
      * @return array
      */
-    public function create_custom_field_input_input ($field, $object, $disabled_text) {
+    private function create_custom_field_input_input ($field, $object, $disabled_text, $nameSuffix = "") {
         $html = array ();
         // max length
         $maxlength = 100;
@@ -1566,7 +1722,7 @@ class Common_functions  {
             $maxlength = str_replace(array("int","(",")"),"", $field['type']);
         }
         // print
-		$html[] = ' <input type="text" class="ip_addr form-control input-sm" name="'. $field['nameNew'] .'" placeholder="'. $this->print_custom_field_name ($field['name']) .'" value="'. $this->strip_xss($object->{$field['name']}). '" size="30" rel="tooltip" data-placement="right" maxlength="'.$maxlength.'" title="'.$field['Comment'].'" '.$disabled_text.'>'. "\n";
+		$html[] = ' <input type="text" class="form-control input-sm" name="'. $field['nameNew'].$nameSuffix .'" placeholder="'. $this->print_custom_field_name ($field['name']) .'" value="'. $this->strip_xss($object->{$field['name']}). '" size="30" rel="tooltip" data-placement="right" maxlength="'.$maxlength.'" title="'.$field['Comment'].'" '.$disabled_text.'>'. "\n";
     	// result
     	return $html;
 	}
@@ -1578,24 +1734,28 @@ class Common_functions  {
 	 *
 	 * @param  string $type
 	 * @param  string $value
+	 * @param  string $delimiter
 	 *
 	 * @return void
 	 */
-	public function print_custom_field ($type, $value) {
-		// escape
-		$value = str_replace("'", "&#39;", $value);
+	public function print_custom_field ($type, $value, $delimiter = false, $replacement = false) {
 		// create links
 		$value = $this->create_links ($value, $type);
+
+		// delimiter ?
+		if($delimiter !== false && $replacement !== false) {
+			$value = str_replace($delimiter, $replacement, $value);
+		}
 
 		//booleans
 		if($type=="tinyint(1)")	{
 			if($value == "1")			{ print _("Yes"); }
-			elseif(strlen($value)==0) 	{ print "/"; }
+			elseif(is_blank($value)) 	{ print "/"; }
 			else						{ print _("No"); }
 		}
 		//text
 		elseif($type=="text") {
-			if(strlen($value)>0)	{ print "<i class='fa fa-gray fa-comment' rel='tooltip' data-container='body' data-html='true' title='".str_replace("\n", "<br>", $value)."'>"; }
+			if(!is_blank($value))	{ print "<i class='fa fa-gray fa-comment' rel='tooltip' data-container='body' data-html='true' title='".str_replace("\n", "<br>", escape_input($value))."'>"; }
 			else					{ print ""; }
 		}
 		else {
@@ -1612,7 +1772,7 @@ class Common_functions  {
 	 *
 	 * @return string
 	 */
-	public function print_custom_field_name ($name, $return = true) {
+	public function print_custom_field_name ($name) {
 		return strpos($name, "custom_")===0 ? substr($name, 7) : $name;
 	}
 
@@ -1643,48 +1803,61 @@ class Common_functions  {
 	}
 
 	/**
+	 * Show MAC address and vendor details
+	 *
+	 * @param string $mac
+	 * @return string
+	 */
+	public function show_mac_and_vendor($mac) {
+		// Check if MAC decoding is enabled
+		$this->get_settings();
+		if (is_object($this->settings) && $this->settings->decodeMAC) {
+			$vendor = $this->get_mac_address_vendor_details($mac);
+
+			if (!empty($vendor)) {
+				return  _("MAC") . ": " . escape_input($mac) . "<hr>" . _("Vendor") . ": " . escape_input($vendor);
+			}
+		}
+
+		return _("MAC") . ": " . escape_input($mac);
+	}
+
+	/**
 	 * Get MAC address vendor details
 	 *
 	 * https://www.macvendorlookup.com/vendormacs-xml-download
 	 *
 	 * @method get_mac_address_vendor
-	 * @param  mixed $mac
+	 * @param  string $mac
+	 * @param  string &$prefix
 	 * @return string
 	 */
-	public function get_mac_address_vendor_details ($mac) {
-		// set default arrays
-		$matches = array();
-		// validate mac
-		if(strlen($mac)<4)				{ return ""; }
-		if(!$this->validate_mac ($mac))	{ return ""; }
-		// reformat mac address
-		$mac = strtoupper($this->reformat_mac_address ($mac, 1));
-		$mac_partial = explode(":", $mac);
-		// get mac XML database
-
-		if (is_null($this->mac_address_vendors)) {
-			//populate mac vendors array
-			$this->mac_address_vendors = array();
-
-			$data = file_get_contents(dirname(__FILE__)."/../vendormacs.xml");
-
-			if (preg_match_all('/\<VendorMapping\smac_prefix="([0-9a-fA-F]{2})[:-]([0-9a-fA-F]{2})[:-]([0-9a-fA-F]{2})"\svendor_name="(.*)"\/\>/', $data, $matches, PREG_SET_ORDER)) {
-				if (is_array($matches)) {
-					foreach ($matches as $match) {
-						$mac_vendor = strtoupper($match[1] . ':' . $match[2] . ':' . $match[3]);
-						$this->mac_address_vendors[$mac_vendor] = $match[4];
-					}
-				}
-			}
-		}
-
-		$mac_vendor = strtoupper($mac_partial[0] . ':' . $mac_partial[1] . ':' . $mac_partial[2]);
-
-		if (isset($this->mac_address_vendors[$mac_vendor])) {
-			return $this->mac_address_vendors[$mac_vendor];
-		} else {
+	public function get_mac_address_vendor_details($mac, &$prefix=null) {
+		if (strlen($mac) < 4 || !$this->validate_mac($mac)) {
 			return "";
 		}
+
+		if (empty($this->mac_address_vendors)) {
+			// Generated from vendorMac.xml
+			// Unique MAC address: 45344
+			// Updated: 12 March 2022
+			$data = file_get_contents(dirname(__FILE__) . "/../vendormacs.json");
+			$this->mac_address_vendors = pf_json_decode($data, true);
+		}
+
+		// Find longest prefix match in $this->mac_address_vendors array (max 9)
+		$search_mac = substr($this->reformat_mac_address($mac, 4), 0, 9);
+
+		while (!is_blank($search_mac)) {
+			if (isset($this->mac_address_vendors[$search_mac])) {
+				$prefix = implode(":", str_split(strtoupper($search_mac), 2));
+				return $this->mac_address_vendors[$search_mac];
+			}
+
+			$search_mac = substr($search_mac, 0, -1);
+		}
+
+		return "";
 	}
 
 	/**
@@ -1895,11 +2068,21 @@ class Common_functions  {
     				print "	<li><a href='".create_link("tools",$req['section'],$parent[0])."'><i class='icon-folder-open icon-gray'></i> $prefix->name</a> <span class='divider'></span></li>";
     			}
 
-		    }
-		    $prefix = $this->fetch_object("pstnPrefixes", "id", $req['subnetId']);
-		    print "	<li class='active'>$prefix->name</li>";
+		    	$prefix = $this->fetch_object("pstnPrefixes", "id", $req['subnetId']);
+		    	print "	<li class='active'>$prefix->name</li>";
+			}
 		}
 		print "</ul>";
+	}
+
+	/**
+	 * Print documentation link
+	 *
+	 * @param string $doc  document path/file
+	 * @return void
+	 */
+	public function print_doc_link($doc) {
+		print "<a style='float:right' target=_ href='".create_link("tools/documentation/$doc")."'>"._("Documentation")." <i class='fa fa-book'></i></a>";
 	}
 
 	/**
@@ -1907,7 +2090,7 @@ class Common_functions  {
 	 *
 	 * @access public
 	 * @param mixed $get
-	 * @return void
+	 * @return string
 	 */
 	public function get_site_title ($get) {
     	// remove html tags
@@ -1920,7 +2103,7 @@ class Common_functions  {
     	if (isset($get['page'])) {
         	// dashboard
         	if ($get['page']=="dashboard") {
-            	return $this->settings->siteTitle." Dashboard";
+            	return $this->settings->siteTitle." "._("Dashboard");
         	}
         	// install, upgrade
         	elseif ($get['page']=="temp_share" || $get['page']=="request_ip" || $get['page']=="opensearch") {
@@ -1946,7 +2129,7 @@ class Common_functions  {
                         	$title[] = $sn->description;
                     	}
                     	else {
-                        	$sn->description = strlen($sn->description)>0 ? " (".$sn->description.")" : "";
+                        	$sn->description = !is_blank($sn->description) ? " (".$sn->description.")" : "";
                         	$title[] = $this->transform_address($sn->subnet, "dotted")."/".$sn->mask.$sn->description;
                         }
                 	}
@@ -2034,14 +2217,16 @@ class Common_functions  {
 	    // alignment
 	    $alignment = $left_align ? "dropdown-menu-left" : "dropdown-menu-right";
 	    // text
-	    $action_text = $print_text ? " <i class='fa fa-cogs'></i> Actions " : " <i class='fa fa-cogs'></i> ";
+	    $action_text = $print_text ? " <i class='fa fa-cogs'></i> "._("Actions")." " : " <i class='fa fa-cogs'></i> ";
 
 	    $html[] = "<div class='dropdown'>";
-	    $html[] = "  <button class='btn btn-xs btn-default dropdown-toggle ' type='button' id='dropdownMenu' data-toggle='dropdown' aria-haspopup='true' aria-expanded='true' rel='tooltip' title='"._("Actions")."'> "._($action_text)." <span class='caret'></span></button>";
+	    $html[] = "  <button class='btn btn-xs btn-default dropdown-toggle ' type='button' id='dropdownMenu' data-toggle='dropdown' aria-haspopup='true' aria-expanded='true' rel='tooltip' title='"._("Actions")."'> ".$action_text." <span class='caret'></span></button>";
 	    $html[] = "  <ul class='dropdown-menu $alignment' aria-labelledby='dropdownMenu'>";
 
 	    // loop items
 	    foreach ($items as $i) {
+			$i = array_merge(['class'=>null, 'dataparams'=>null], $i);
+
 	        // visible
 	        if (isset($i['visible'])) {
 	            if ($i['visible']!="dropdown") {
@@ -2059,7 +2244,7 @@ class Common_functions  {
 	        }
 	        // item
 	        else {
-	            $html[] = "   <li><a class='$i[class]' href='$i[href]' $i[dataparams]><i class='fa fa-$i[icon]'></i> "._($i['text'])."</a></li>";
+	            $html[] = "   <li><a class='$i[class]' href='$i[href]' $i[dataparams]><i class='fa fa-$i[icon]'></i> ".$i['text']."</a></li>";
 	        }
 	    }
 	    // remove last divider if present
@@ -2096,7 +2281,7 @@ class Common_functions  {
 	        }
 	        // save only links
 	        if($i['type']=="link") {
-	            $html[] = " <a href='$i[href]' class='btn btn-xs btn-default $i[class]' $i[dataparams] rel='tooltip' title='"._($i['text'])."'><i class='fa fa-$i[icon]'></i></a>";
+	            $html[] = " <a href='$i[href]' class='btn btn-xs btn-default $i[class]' $i[dataparams] rel='tooltip' title='".$i['text']."'><i class='fa fa-$i[icon]'></i></a>";
 	        }
 	    }
 	    // end

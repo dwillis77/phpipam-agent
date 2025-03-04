@@ -48,7 +48,10 @@ defined('JSON_UNESCAPED_UNICODE') or define('JSON_UNESCAPED_UNICODE', 256);
 
 /* @classes ---------------------- */
 
+/* common must be imported first */
 require( dirname(__FILE__) . '/classes/class.Common.php' );
+require( dirname(__FILE__) . '/classes/class.Admin.php' );
+require( dirname(__FILE__) . '/classes/class.DNS.php' );
 require( dirname(__FILE__) . '/classes/class.PDO.php' );
 require( dirname(__FILE__) . '/classes/class.Log.php' );
 require( dirname(__FILE__) . '/classes/class.Addresses.php' );
@@ -56,7 +59,9 @@ require( dirname(__FILE__) . '/classes/class.Subnets.php' );
 require( dirname(__FILE__) . '/classes/class.Result.php' );
 require( dirname(__FILE__) . '/classes/class.Mail.php' );
 require( dirname(__FILE__) . '/classes/class.Scan.php' );
+require( dirname(__FILE__) . '/classes/class.SNMP.php' );
 require( dirname(__FILE__) . '/classes/class.Thread.php' );
+require( dirname(__FILE__) . '/classes/class.Tools.php' );
 require( dirname(__FILE__) . '/classes/class.phpipamAgent.php' );
 
 /* get version */

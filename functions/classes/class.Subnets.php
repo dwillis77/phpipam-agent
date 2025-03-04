@@ -7,14 +7,6 @@
 class Subnets extends Common_functions {
 
 	/**
-	 * (array) Discovered IP addresses
-	 *
-	 * @var mixed
-	 * @access public
-	 */
-	public $discovered = array();
-
-	/**
 	 * (array of ids) to store id's of all recursively slaves
 	 *
 	 * @var mixed
@@ -31,16 +23,6 @@ class Subnets extends Common_functions {
 	public $slaves_full;
 
 	/**
-	 * (array) IP address types from Addresses object
-	 *
-	 * (default value: null)
-	 *
-	 * @var mixed
-	 * @access public
-	 */
-	public $address_types = null;
-
-	/**
 	 * Last id of new entries
 	 *
 	 * (default value: null)
@@ -49,15 +31,6 @@ class Subnets extends Common_functions {
 	 * @access public
 	 */
 	public $lastInsertId = null;
-
-	/**
-	 * engine type
-	 *
-	 * 	MEMORY, InnoDB
-	 *
-	 * @var string
-	 */
-	protected $tmptable_engine_type = "MEMORY";
 
 	/**
 	 * array of /8 ripe subnets
@@ -120,6 +93,8 @@ class Subnets extends Common_functions {
 	 * @access public
 	 */
 	public function __construct (Database_PDO $database) {
+		parent::__construct();
+
 		# Save database object
 		$this->Database = $database;
 		# initialize Result
@@ -128,6 +103,8 @@ class Subnets extends Common_functions {
 		$this->Log = new Logging ($this->Database);
 		# pre-generate GMP math bitmask values to manipulate subnets/addresses
 		$this->gmp_bitmasks = $this->generate_network_bitmasks();
+		// fetch address types
+		$this->get_addresses_types();
 	}
 
 	/**
@@ -138,7 +115,7 @@ class Subnets extends Common_functions {
 	 */
 	private function get_subnet_order () {
 	    $this->get_settings ();
-	    return explode(",", $this->settings->subnetOrdering);
+	    return pf_explode(",", $this->settings->subnetOrdering);
 	}
 
 
@@ -232,14 +209,14 @@ class Subnets extends Common_functions {
 		try { $this->Database->insertObject("subnets", $values); }
 		catch (Exception $e) {
 			$this->Result->show("danger", _("Error: ").$e->getMessage(), false);
-			$this->Log->write( "Subnet creation", "Failed to add new subnet<hr>".$e->getMessage(), 2);
+			$this->Log->write( _("Subnet creation"), _("Failed to add new subnet").".<hr>".$e->getMessage(), 2);
 			return false;
 		}
 		# save id
 		$this->lastInsertId = $this->Database->lastInsertId();
 		$values['id'] = $this->lastInsertId;
 		# ok
-		$this->Log->write( "Subnet created", "New subnet created<hr>".$this->array_to_log($this->reformat_empty_array_fields ($values, "NULL")), 0);
+		$this->Log->write( _("Subnet creation"), _("New subnet created").".<hr>".$this->array_to_log($this->reformat_empty_array_fields ($values, "NULL")), 0);
 		# write changelog
 		$this->Log->write_changelog('subnet', "add", 'success', array(), $values);
 		return true;
@@ -263,7 +240,7 @@ class Subnets extends Common_functions {
 			if ($this->network_or_broadcast_address_in_use($old_subnet)) {
 				$errmsg = _("Can not disable isPool, network or broadcast address is allocated");
 				$this->Result->show("danger", $errmsg, false);
-				$this->Log->write( "Subnet edit", "Failed to edit subnet<hr>".$errmsg, 2);
+				$this->Log->write( _("Subnet edit"), _("Failed to edit subnet").".<hr>".$errmsg, 2);
 				return false;
 			}
 		}
@@ -272,7 +249,7 @@ class Subnets extends Common_functions {
 		try { $this->Database->updateObject("subnets", $values, "id"); }
 		catch (Exception $e) {
 			$this->Result->show("danger", _("Error: ").$e->getMessage(), false);
-			$this->Log->write( "Subnet edit", "Failed to edit subnet<hr>".$e->getMessage(), 2);
+			$this->Log->write( _("Subnet edit"), _("Failed to edit subnet").".<hr>".$e->getMessage(), 2);
 			return false;
 		}
 		# save ID
@@ -280,9 +257,9 @@ class Subnets extends Common_functions {
 
 		# changelog
 		if($mail_changelog)
-		$this->Log->write_changelog('subnet', "edit", 'success', $old_subnet, $values);
+			$this->Log->write_changelog('subnet', "edit", 'success', $old_subnet, $values);
 		# ok
-		$this->Log->write( "Subnet $old_subnet->description edit", "Subnet $old_subnet->description edited<hr>".$this->array_to_log($this->reformat_empty_array_fields ($values, "NULL")), 0);
+		$this->Log->write( _("Subnet")." ".$old_subnet->description." "._("edit"), _("Subnet")." ".$old_subnet->description." "._("edited").".<hr>".$this->array_to_log($this->reformat_empty_array_fields ($values, "NULL")), 0);
 		return true;
 	}
 
@@ -314,7 +291,7 @@ class Subnets extends Common_functions {
 		# delete subnet
 		try { $this->Database->deleteRow("subnets", "id", $id); }
 		catch (Exception $e) {
-			$this->Log->write( "Subnet delete", "Failed to delete subnet $old_subnet->name<hr>".$e->getMessage(), 2);
+			$this->Log->write( _("Subnet delete"), _("Failed to delete subnet")." ".$old_subnet->name.".<hr>".$e->getMessage(), 2);
 			$this->Result->show("danger", _("Error: ").$e->getMessage(), false);
 			return false;
 		}
@@ -324,7 +301,7 @@ class Subnets extends Common_functions {
 		# write changelog
 		$this->Log->write_changelog('subnet', "delete", 'success', $old_subnet, array());
 		# ok
-		$this->Log->write( "Subnet $old_subnet->description delete", "Subnet $old_subnet->description deleted<hr>".$this->array_to_log($this->reformat_empty_array_fields ((array) $old_subnet)), 0);
+		$this->Log->write( _("Subnet")." ".$old_subnet->description." "._("delete"), _("Subnet")." ".$old_subnet->description." "._("deleted").".<hr>".$this->array_to_log($this->reformat_empty_array_fields ((array) $old_subnet)), 0);
 		return true;
 	}
 
@@ -341,10 +318,10 @@ class Subnets extends Common_functions {
 		# execute
 		try { $this->Database->deleteRow("ipaddresses", "subnetId", $subnetId); }
 		catch (Exception $e) {
-			$this->Log->write( "Subnet truncate", "Failed to truncate subnet $old_subnet->description id $old_subnet->id<hr>".$e->getMessage(), 2);
+			$this->Log->write( _("Subnet truncate"), _("Failed to truncate subnet")." ".$old_subnet->description." "._("id")." ".$old_subnet->id.".<hr>".$e->getMessage(), 2);
 			$this->Result->show("danger", _("Error: ").$e->getMessage(), true);
 		}
-		$this->Log->write( "Subnet truncate", "Subnet $old_subnet->description id $old_subnet->id truncated", 0);
+		$this->Log->write( _("Subnet truncate"), _("Subnet")." ".$old_subnet->description." "._("id")." ".$old_subnet->id." "._("truncated"), 0);
 		return true;
 	}
 
@@ -364,11 +341,11 @@ class Subnets extends Common_functions {
 		try { $this->Database->updateObject("subnets", array("id"=>$subnetId, "subnet"=>$subnet, "mask"=>$mask), "id"); }
 		catch (Exception $e) {
 			$this->Result->show("danger", _("Error: ").$e->getMessage(), false);
-			$this->Log->write( "Subnet edit", "Failed to resize subnet $old_subnet->description id $old_subnet->id<hr>".$e->getMessage(), 2);
+			$this->Log->write( _("Subnet edit"), _("Failed to resize subnet")." ".$old_subnet->description." "._("id")." ".$old_subnet->id.".<hr>".$e->getMessage(), 2);
 			return false;
 		}
 		# ok
-		$this->Log->write( "Subnet resize", "Subnet $old_subnet->description id $old_subnet->id resized<hr>".$this->array_to_log(array("id"=>$subnetId, "mask"=>$mask)), 0);
+		$this->Log->write( _("Subnet resize"), _("Subnet")." ".$old_subnet->description." "._("id")." ".$old_subnet->id." "._("resized").".<hr>".$this->array_to_log(array("id"=>$subnetId, "mask"=>$mask)), 0);
 		return true;
 	}
 
@@ -404,7 +381,7 @@ class Subnets extends Common_functions {
 		foreach($newsubnets as $m => $subnet) {
 			//set new subnet insert values
 			$values = array(
-							"description"    => strlen($prefix)>0 ? $prefix.($m+1) : "split_subnet_".($m+1),
+							"description"    => !is_blank($prefix) ? $prefix.($m+1) : "split_subnet_".($m+1),
 							"subnet"         => $subnet['subnet'],
 							"mask"           => $subnet['mask'],
 							"sectionId"      => $subnet['sectionId'],
@@ -476,8 +453,8 @@ class Subnets extends Common_functions {
 			# loop
 			foreach ($all_nats as $nat) {
 			    # remove item from nat
-			    $s = json_decode($nat->src, true);
-			    $d = json_decode($nat->dst, true);
+			    $s = pf_json_decode($nat->src, true);
+			    $d = pf_json_decode($nat->dst, true);
 
 			    if(is_array($s['subnets']))
 			    $s['subnets'] = array_diff($s['subnets'], array($obj_id));
@@ -494,7 +471,7 @@ class Subnets extends Common_functions {
 
 				    if($Admin->object_modify ("nat", "edit", "id", array("id"=>$nat->id, "src"=>$src_new, "dst"=>$dst_new))!==false) {
 				    	if($print) {
-					        $this->Result->show("success", "Subnet removed from NAT", false);
+					        $this->Result->show("success", _("Subnet removed from NAT"), false);
 						}
 				    }
 				}
@@ -524,11 +501,11 @@ class Subnets extends Common_functions {
 	 * Fetches subnetd by specified method
 	 *
 	 * @access public
-	 * @param string $method (default: "id")
+	 * @param string $method
 	 * @param mixed $value
-	 * @return array|false
+	 * @return object|false
 	 */
-	public function fetch_subnet ($method="id", $value) {
+	public function fetch_subnet ($method, $value) {
 		# null method
 		$method = is_null($method) ? "id" : $method;
 		# fetch
@@ -543,7 +520,7 @@ class Subnets extends Common_functions {
 	 * @param string|false $field
 	 * @param mixed|false $value
 	 * @param array|string $result_fields   // fields to fetch
-	 * @return array
+	 * @return array|false
 	 */
 	public function fetch_section_subnets ($sectionId, $field = false, $value = false, $result_fields = "*") {
 		# fetch settings and set subnet ordering
@@ -553,7 +530,7 @@ class Subnets extends Common_functions {
 
 		# section ordering - overrides network
 		$section  = $this->fetch_object ("sections", "id", $sectionId);
-		if(@$section->subnetOrdering!="default" && strlen(@$section->subnetOrdering)>0 ) 	{ $order = explode(',', $section->subnetOrdering); }
+		if(@$section->subnetOrdering!="default" && !is_blank(@$section->subnetOrdering) ) 	{ $order = pf_explode(',', $section->subnetOrdering); }
 
 		// subnet fix
 		if($order[0]=="subnet") $order[0] = 'LPAD(subnet,39,0)';
@@ -587,6 +564,103 @@ class Subnets extends Common_functions {
 		}
 		# result
 		return (is_array($subnets) && sizeof($subnets)>0) ? $subnets : false;
+	}
+
+	/**
+	 * Recompute masterSubnetId for a section (by Id)
+	 *
+	 * @param   integer $sectionId
+	 * @param   array   $options
+	 * @return  array
+	 */
+	public function recompute_masterIds($sectionId, $options = ['IPv4'=>true, 'IPv6'=>true, 'CVRF'=>true]) {
+		$subnets = $this->fetch_section_subnets($sectionId);
+
+		if (!is_array($subnets) || sizeof($subnets)==0)
+			return [];
+
+		// Build hash lookup tables
+		$subnetByMaskNetwork = []; $subnetByVrfMaskNetwork = []; $subnetById = [];
+
+		foreach ($subnets as $i=>$subnet) {
+			$subnet->type = $this->identify_address($subnet->subnet);
+
+			// ignore folders and wrong IP types
+			if ($subnet->isFolder || $options[$subnet->type]!==true) {
+				unset($subnets[$i]);
+				continue;
+			}
+
+			$subnet->ip      = $this->transform_to_dotted($subnet->subnet);
+			$subnet->network = $this->decimal_network_address($subnet->subnet, $subnet->mask);
+			$subnet->vrfId   = (int) $subnet->vrfId;   // map null to 0
+
+			// store in lookup tables
+			$subnetById[$subnet->id] = $subnet;
+			$subnetByMaskNetwork[$subnet->type][$subnet->mask][$subnet->network][] = $subnet;
+			$subnetByVrfMaskNetwork[$subnet->type][$subnet->vrfId][$subnet->mask][$subnet->network][] = $subnet;
+		}
+
+		// Recompute nested relationships for $subnets
+		$results = [];
+
+		foreach ($subnets as $i=>$subnet) {
+			// Skip changing subnets with folder masters
+			if (isset($subnetById[$subnet->masterSubnetId]) && $subnetById[$subnet->masterSubnetId]->isFolder)
+				continue;
+
+			// Find matching candidates of the same IP type with the largest mask smaller than $subnet->mask
+			$valid_parents = [];
+			$search_mask = $subnet->mask;
+
+			while (--$search_mask >= 0) {
+				$search_network = $this->decimal_network_address($subnet->subnet, $search_mask);
+
+				if (isset($subnetByVrfMaskNetwork[$subnet->type][$subnet->vrfId][$search_mask][$search_network])) {
+					// All possible parents in the same VRF
+					$valid_parents = $subnetByVrfMaskNetwork[$subnet->type][$subnet->vrfId][$search_mask][$search_network];
+					break;
+
+				} elseif ($options['CVRF']===true && isset($subnetByMaskNetwork[$subnet->type][$search_mask][$search_network])) {
+					//  All possible parents not in the same VRF
+					$valid_parents = $subnetByMaskNetwork[$subnet->type][$search_mask][$search_network];
+					break;
+				}
+			}
+
+			// No matches == no change
+			if (sizeof($valid_parents)==0) {
+				$results[] = ["subnet"=>$subnet, "newMasterSubnetId"=>$subnet->masterSubnetId];
+				continue;
+			}
+
+			// Choose the best matching subnet from $valid_parents
+			// Ether all $valid_parents match $subnet->vrfId or they all do not match $subnet->vrfId.
+			//
+			// Select the parent from the available candidates based on the selection rules below.
+			// First matching rule wins.
+			//  - Prefer parent subnets in the same VRF. ($valid_parents from same VRF if matched from $subnetByVrfMaskNetwork)
+			//  - Prefer the currently set parent subnet.
+			//  - Prefer the parent subnet with the lowest id value.
+
+			$best_match = null;
+
+			foreach($valid_parents as $parent) {
+				// Keep the current masterSubnetId if valid
+				if ($parent->id == $subnet->masterSubnetId) {
+					$best_match = $parent;
+					break;
+				}
+
+				// lower id?
+				if (!isset($best_match) || ($parent->id < $best_match->id))
+					$best_match = $parent;
+			}
+
+			$results[] = ["subnet"=>$subnet, "newMasterSubnetId"=>$best_match->id];
+		}
+
+		return $results;
 	}
 
 	/**
@@ -640,36 +714,69 @@ class Subnets extends Common_functions {
 	 * @return array|false
 	 */
 	public function fetch_overlapping_subnets ($cidr, $method=null, $value=null, $result_fields = "*") {
-		if ($this->verify_cidr_address($cidr)!==true) return false;
+		if ($this->verify_cidr_address($cidr) !== true) return false;
 
 		$result_fields = $this->Database->escape_result_fields($result_fields);
 
-		list($cidr, $cidr_mask) = explode('/', $cidr);
+		list($cidr, $cidr_mask) = $this->cidr_network_and_mask($cidr);
 		$cidr_decimal = $this->transform_to_decimal($cidr);
 		$cidr_network = $this->decimal_network_address($cidr_decimal, $cidr_mask);
 		$cidr_broadcast = $this->decimal_broadcast_address($cidr_decimal, $cidr_mask);
 
 		$possible_parents = array();
-		for ($mask=0; $mask<=$cidr_mask; $mask++) {
+		for ($mask = 0; $mask <= $cidr_mask; $mask++) {
 			$parent = $this->decimal_network_address($cidr_decimal, $mask);
 			$possible_parents[] = "('$parent','$mask')";
 		}
 		$possible_parents = implode(',', $possible_parents);
 
-		$query = "SELECT $result_fields FROM `subnets` WHERE `isFolder` = 0 AND ";
-		if (!is_null($method)) $query .= " `$method` = '".$this->Database->escape($value)."' AND ";
-		$query .= " (   ( LPAD(`subnet`,39,0) >= LPAD('$cidr_network',39,0) AND LPAD(`subnet`,39,0) <= LPAD('$cidr_broadcast',39,0) )";
-		$query .= "  OR (`subnet`,`mask`) IN ($possible_parents)  ) ";
-		$query .= "ORDER BY CAST(`mask` AS UNSIGNED) DESC, LPAD(`subnet`,39,0);";
+		$query = [];
+		$query[] = "SELECT $result_fields FROM `subnets` WHERE COALESCE(`isFolder`,0) = 0 AND ";
+		if (!is_null($method)) {
+			$query[] = " COALESCE(`$method`,0) = '" . $this->Database->escape($value) . "' AND ";
+		}
+		$query[] = " ( ";
+		$query[] = "   ( LPAD(`subnet`,39,0) >= LPAD('$cidr_network',39,0) AND LPAD(`subnet`,39,0) <= LPAD('$cidr_broadcast',39,0) )";
+		$query[] = "   OR (`subnet`,`mask`) IN ($possible_parents)";
+		$query[] = " ) ";
+		$query[] = "ORDER BY CAST(`mask` AS UNSIGNED) DESC, LPAD(`subnet`,39,0);";
 
 		try {
-			$overlaping_subnets = $this->Database->getObjectsQuery($query);
+			$overlaping_subnets = $this->Database->getObjectsQuery(implode("\n", $query));
 		} catch (Exception $e) {
-			$this->Result->show("danger", _("Error: ").$e->getMessage());
+			$this->Result->show("danger", _("Error: ") . $e->getMessage());
 			return false;
 		}
 
 		return $overlaping_subnets;
+	}
+
+	/**
+	 *  Fetches duplicate subnets
+	 *
+	 * @access public
+	 * @return array
+	 */
+	public function fetch_duplicate_subnets() {
+		try {
+			$query = "SELECT s.* FROM subnets AS s
+				INNER JOIN (SELECT subnet,mask,COUNT(*) AS cnt FROM subnets GROUP BY subnet,mask HAVING cnt >1) dups ON s.subnet=dups.subnet AND s.mask=dups.mask
+				and.s.isFolder=0 ORDER BY s.subnet,s.mask,s.id;";
+
+			$subnets = $this->Database->getObjectsQuery($query);
+
+			# save to subnets cache
+			if(is_array($subnets)) {
+				foreach($subnets as $subnet) {
+					$this->cache_write ("subnets", $subnet);
+				}
+			}
+		}
+		catch (Exception $e) {
+			$subnets = [];
+		}
+
+		return is_array($subnets) ? $subnets : [];
 	}
 
 	/**
@@ -679,7 +786,7 @@ class Subnets extends Common_functions {
 	 * @return array|false
 	 */
 	public function fetch_all_subnets_for_pingCheck ($agentId=null) {
-		return $this->fetch_all_subnets_for_check('pingSubnet', $agentId);
+		return $this->fetch_all_subnets_for_Check('pingSubnet', $agentId);
 	}
 
 	/**
@@ -689,7 +796,7 @@ class Subnets extends Common_functions {
 	 * @return array|false
 	 */
 	public function fetch_all_subnets_for_discoveryCheck ($agentId=null) {
-		return $this->fetch_all_subnets_for_check('discoverSubnet', $agentId);
+		return $this->fetch_all_subnets_for_Check('discoverSubnet', $agentId);
 	}
 
 	/**
@@ -700,7 +807,11 @@ class Subnets extends Common_functions {
 	 */
 	private function fetch_all_subnets_for_Check($discoverytype, $agentId) {
 		if (is_null($agentId) || !is_numeric($agentId))	{ return false; }
-		try { $subnets = $this->Database->getObjectsQuery("SELECT `id`,`subnet`,`sectionId`,`mask`,`resolveDNS`,`nameserverId` FROM `subnets` WHERE `scanAgent` = ? AND `$discoverytype` = 1 AND `isFolder` = 0 AND `mask` > 0;", array($agentId)); }
+		// Exclude subnets with children
+		$query = "SELECT s.id, s.subnet, s.sectionId, s.mask, s.resolveDNS, s.nameserverId FROM subnets AS s
+				LEFT JOIN subnets AS child ON child.masterSubnetId = s.id
+				WHERE s.scanAgent = ? AND s.$discoverytype = 1 AND s.isFolder = 0 AND s.mask > 0 AND s.subnet < 4294967296 AND child.id IS NULL;";
+		try { $subnets = $this->Database->getObjectsQuery($query, array($agentId)); }
 		catch (Exception $e) {
 			$this->Result->show("danger", _("Error: ").$e->getMessage());
 			return false;
@@ -725,7 +836,7 @@ class Subnets extends Common_functions {
 
 		# section ordering - overrides network
 		$section  = $this->fetch_object ("sections", "id", $sectionId);
-		if(@$section->subnetOrdering!="default" && strlen(@$section->subnetOrdering)>0 ) 	{ $order = explode(',', $section->subnetOrdering); }
+		if(@$section->subnetOrdering!="default" && !is_blank(@$section->subnetOrdering) ) 	{ $order = pf_explode(',', $section->subnetOrdering); }
 
 		// subnet fix
 		if($order[0]=="subnet") $order[0] = 'LPAD(subnet,39,0)';
@@ -817,7 +928,7 @@ class Subnets extends Common_functions {
 
 		# section ordering - overrides network
 		$section  = $this->fetch_object ("sections", "id", $sectionId);
-		if(@$section->subnetOrdering!="default" && strlen(@$section->subnetOrdering)>0 ) 	{ $order = explode(',', $section->subnetOrdering); }
+		if(@$section->subnetOrdering!="default" && !is_blank(@$section->subnetOrdering) ) 	{ $order = pf_explode(',', $section->subnetOrdering); }
 
 		// subnet fix
 		if($order[0]=="subnet") $order[0] = 'LPAD(subnet,39,0)';
@@ -946,7 +1057,42 @@ class Subnets extends Common_functions {
 			$out[$mask]->wildcard = long2ip(~ip2long($net->netmask));	   //0.0.255.255
 
 			// binary
-			$parts = explode(".", $net->netmask);
+			$parts = pf_explode(".", $net->netmask);
+			foreach($parts as $k=>$p) { $parts[$k] = str_pad(decbin($p),8, 0); }
+			$out[$mask]->binary = implode(".", $parts);
+		}
+		# return result
+		return $out;
+	}
+
+	/**
+	 * Returns all IPv4 subnet masks with different presentations
+	 *
+	 * @access public
+	 * @return array
+	 */
+	public function get_ipv4_masks_for_subnet ($subnet_mask = "32") {
+    	$out = array();
+		# loop masks
+		for($mask=32; $mask>=$subnet_mask; $mask--) {
+			// initialize
+			$out[$mask] = new StdClass ();
+
+			// fake cidr
+			$this->initialize_pear_net_IPv4 ();
+			$net = $this->Net_IPv4->parseAddress("10.0.0.0/$mask");
+
+			// set
+			$out[$mask]->bitmask = $mask;									// bitmask
+			$out[$mask]->netmask = $net->netmask;							// netmask
+			$out[$mask]->host_bits = 32-$mask;								// host bits
+			$out[$mask]->subnet_bits = 32-$out[$mask]->host_bits;			// network bits
+			$out[$mask]->hosts = number_format( $this->max_hosts(['subnet'=>'10.0.0.0', 'mask'=>$mask]) , 0, ",", ".");		// max hosts
+			$out[$mask]->subnets = number_format(pow(2,($mask-$subnet_mask)), 0, ",", ".");
+			$out[$mask]->wildcard = long2ip(~ip2long($net->netmask));	   //0.0.255.255
+
+			// binary
+			$parts = pf_explode(".", $net->netmask);
 			foreach($parts as $k=>$p) { $parts[$k] = str_pad(decbin($p),8, 0); }
 			$out[$mask]->binary = implode(".", $parts);
 		}
@@ -960,111 +1106,10 @@ class Subnets extends Common_functions {
 
 
 
-
-
 	/**
 	* @slave subnet functions
 	* -------------------------------
 	*/
-
-	/**
-	 * Reset engine type if set in config.php (MEMORY or InnoDB)
-	 *
-	 * @method set_tmptable_engine_type
-	 */
-	private function set_tmptable_engine_type () {
-		$db = Config::ValueOf('db');
-
-		if(!isset($db['tmptable_engine_type']))
-			return;
-
-		if($db['tmptable_engine_type']=="MEMORY" || $db['tmptable_engine_type']=="InnoDB")
-			$this->tmptable_engine_type = $db['tmptable_engine_type'];
-	}
-
-	/**
-	 * Deletes temporary table containing slave ids for a given subnetId
-	 *
-	 * @access private
-	 * @param integer $subnetId
-	 * @param integer $level (default: 0)
-	 * @return void
-	 */
-	private function reset_subnet_familytree_table ($subnetId, $level = 0) {
-		try {
-			$subnetId = filter_var($subnetId, FILTER_VALIDATE_INT);
-			if ($subnetId === false) { throw new Exception(_('Invalid subnetId')); }
-			// execute
-			$this->Database->runQuery('DROP TABLE IF EXISTS tmp_subnet_familytree_' . (int) $subnetId . '_' . (int) $level);
-		} catch (Exception $e) {
-			$this->Result->show("danger", _("Error: ").$e->getMessage());
-		}
-	}
-
-	/**
-	 * Generates temporary table containing slave ids for a given subnetId
-	 *
-	 * @access private
-	 * @param integer $subnetId
-	 * @return string
-	 */
-	private function create_subnet_familytree ($subnetId) {
-
-		// MySQL does not support multiple references to a temporary table in the same query.
-		// Ideally we would populate temp_table with our initial subnetId and then run the query below until
-		// the inserted record count is zero (no more slaves ids found).
-		//
-		//  INSERT INTO temp_table SELECT id FROM subnets WHERE id NOT IN (temp_table) AND masterSubnetId IN (temp_table)
-		//
-		// Work around the 'wont-fix' limitation by using a temporary table per iteration and consolidate the results.
-
-		try {
-			$subnetId = filter_var($subnetId, FILTER_VALIDATE_INT);
-			if ($subnetId === false) { throw new Exception(_('Invalid subnetId')); }
-
-			// set engine type
-			$this->set_tmptable_engine_type ();
-
-			// tmp table name
-			$base_table_name = 'tmp_subnet_familytree_'.$subnetId;
-
-			// set default count
-			$rowCount = 0;
-			$level = 0;
-
-			// remove old temp table with level
-			$this->reset_subnet_familytree_table ($subnetId, $level);
-			// create new temp table
-			$query = 'CREATE TEMPORARY TABLE '.$base_table_name.'_'.$level.' (id int(11) PRIMARY KEY) ENGINE = '.$this->tmptable_engine_type.
-				' SELECT subnets.id FROM subnets WHERE subnets.masterSubnetId = '."'$subnetId'";
-			$result = $this->Database->runQuery($query, null, $rowCount);
-
-			// Fetch next level of slaves.
-			while ($result == 1 && $rowCount > 0) {
-				$lastlevel = $level++;
-
-				// remove old
-				$this->reset_subnet_familytree_table ($subnetId, $level);
-				$query = 'CREATE TEMPORARY TABLE '.$base_table_name.'_'.$level.' (id int(11) PRIMARY KEY) ENGINE = '.$this->tmptable_engine_type.
-					' SELECT subnets.id FROM subnets INNER JOIN '.$base_table_name.'_'.$lastlevel.' AS parents ON subnets.masterSubnetId = parents.id';
-				$result = $this->Database->runQuery($query, null, $rowCount);
-			}
-
-			// Consolidate results into single temporary table.
-			while (--$level >= 1) {
-				$query = 'INSERT IGNORE INTO '.$base_table_name.'_0 SELECT id FROM '.$base_table_name.'_'.$level;
-				$this->Database->runQuery($query);
-
-				// remove old table
-				$this->reset_subnet_familytree_table ($subnetId, $level);
-			}
-		}
-		catch (Exception $e) {
-			$this->Result->show("danger", _("Error: ").$e->getMessage());
-			throw $e;
-		}
-		return $base_table_name.'_0';
-	}
 
 	/**
 	 * Checks if subnet has any slaves
@@ -1108,14 +1153,23 @@ class Subnets extends Common_functions {
 	 * @return void
 	 */
 	public function fetch_subnet_slaves_recursive ($subnetId) {
-
 		try {
-			// Create temporary table 'tmp_subnet_familytree_${subnetId}' containing all slave ids.
-			$tmp_table_name = $this->create_subnet_familytree($subnetId);
-
-			// Fetch all slaves
-			$query = 'SELECT subnets.* FROM subnets INNER JOIN `'.$tmp_table_name.'` AS slaves ON subnets.id = slaves.id';
-			$slaves = $this->Database->getObjectsQuery($query);
+			if ( $this->Database->is_cte_enabled() ) {
+				$slaves = $this->Database->getObjectsQuery(
+					"WITH RECURSIVE cte_query AS (
+						SELECT id FROM subnets WHERE masterSubnetId=:id
+						UNION ALL
+						SELECT subnets.id FROM subnets INNER JOIN cte_query ON subnets.masterSubnetId = cte_query.id
+					)
+					SELECT subnets.* FROM subnets INNER JOIN cte_query ON subnets.id = cte_query.id;",
+					["id"=>$subnetId]);
+			} else {
+				$slaves = $this->Database->emulate_cte_query(
+					"(id int(11))",																					// temporary table schema
+					"SELECT subnets.id FROM subnets WHERE masterSubnetId=:id", ["id"=>$subnetId],					// Anchor query
+					"SELECT subnets.id FROM subnets INNER JOIN cte_last ON subnets.masterSubnetId = cte_last.id",	// Recursive sub-query (last iteration in cte_last)
+					"SELECT subnets.*  FROM subnets INNER JOIN cte_query ON subnets.id = cte_query.id");			// Results query, cte output in cte_query
+			}
 
 			$this->slaves[] = $subnetId;
 
@@ -1133,8 +1187,6 @@ class Subnets extends Common_functions {
 		catch (Exception $e) {
 			$this->Result->show("danger", _("Error: ").$e->getMessage());
 		}
-
-		$this->reset_subnet_familytree_table($subnetId);
 	}
 
 	/**
@@ -1146,8 +1198,8 @@ class Subnets extends Common_functions {
 	 * @return void
 	 */
 	public function reset_subnet_slaves_recursive () {
-		$this->slaves = null;
-		$this->slaves_full = null;
+		$this->slaves = [];
+		$this->slaves_full = [];
 	}
 
 	/**
@@ -1224,9 +1276,9 @@ class Subnets extends Common_functions {
     	if (!is_numeric($sectionId))                        { return false; }
     	if ($this->verify_cidr_address ($cidr) !== true)    { return false; }
     	// set subnet / mask
-    	$tmp = explode("/", $cidr);
+    	$tmp = $this->cidr_network_and_mask($cidr);
     	// search
-		try { $subnet = $this->Database->getObjectQuery("select * from `subnets` where `subnet`=? and `mask`=? and `sectionId`=?;", $values = array($this->transform_address($tmp[0],"decimal"), $tmp[1], $sectionId)); }
+		try { $subnet = $this->Database->getObjectQuery("select * from `subnets` where `subnet`=? and `mask`=? and `sectionId`=?;", array($this->transform_address($tmp[0],"decimal"), $tmp[1], $sectionId)); }
 		catch (Exception $e) {
 			$this->Result->show("danger", _("Error: ").$e->getMessage());
 			return false;
@@ -1256,204 +1308,195 @@ class Subnets extends Common_functions {
 	/**
 	 * Calculates subnet usage for subnet, including slave
 	 *
-	 *  If detailed = true it will group addresses in subnet by tag for drawing graph
-	 *
 	 * @access public
 	 * @param array|object $subnet
-	 * @param bool $detailed (default: false)
 	 * @return array
 	 */
-	public function calculate_subnet_usage ($subnet, $detailed = false) {
+	public function calculate_subnet_usage ($subnet) {
 		// cast to object
 		if(is_array($subnet)) {
-    		$subnet = (object) $subnet;
+			$subnet = (object) $subnet;
 		}
 
-		// init addresses object
-		$this->Addresses = new Addresses ($this->Database);
-		// fetch address types
-		$this->get_addresses_types();
-
-		$cached_item = $this->cache_check("subnet_usage", "$subnet->id d=$detailed");
+		$cached_item = $this->cache_check("fn_calculate_subnet_usage", $subnet->id);
 		if(is_object($cached_item)) return $cached_item->result;
 
-    	// is slaves
-    	if ($this->has_slaves ($subnet->id)) {
-            // if we have slaves we need to check against every slave
-            $this->reset_subnet_slaves_recursive ();
-            $this->fetch_subnet_slaves_recursive ($subnet->id);
-            $this->remove_subnet_slaves_master ($subnet->id);
-
-            // set master details
-            $subnet_usage = $this->calculate_single_subnet_details ($subnet, false);
-
-        	// loop and add results
-            foreach ($this->slaves_full as $ss) {
-                // calculate for specific subnet
-                $slave_usage = $this->calculate_single_subnet_details ($ss, false);
-                // append slave values to its master
-                $subnet_usage['used']      = gmp_strval(gmp_add($subnet_usage['used'],$slave_usage['used']));
-                $subnet_usage['freehosts'] = gmp_strval(gmp_sub($subnet_usage['freehosts'],$slave_usage['used']));
-
-                if (gmp_cmp($subnet_usage['used'],$subnet_usage['maxhosts']) > 0 ) {
-                    $subnet_usage['used'] = $subnet_usage['maxhosts'];
-                }
-                if (gmp_cmp($subnet_usage['freehosts'],0) < 0 ) {
-                    $subnet_usage['freehosts'] = 0;
-                }
-            }
-            // recalculate percentge
-            $subnet_usage["freehosts_percent"] = round((($subnet_usage['freehosts'] * 100.0) / $subnet_usage['maxhosts']),2);
-            $subnet_usage["Used_percent"]      = 100.0 - $subnet_usage["freehosts_percent"];
-    	}
-    	// no slaves
-    	else {
-            $subnet_usage = $this->calculate_single_subnet_details ($subnet, $detailed);
-    	}
-    	// return usage
-    	$this->cache_write ("subnet_usage", (object) ["id"=>"$subnet->id d=$detailed", "result" => $subnet_usage]);
-    	return $subnet_usage;
-	}
-
-	/**
-	 * Optimized subnet IP address usage.
-	 *
-	 * For large nested subnets (10.0.0.0/8) we don't want to generate an Addresses->count_subnet_addresses() SQL
-	 * query for every nested subnet (possibly 10,000+). Collect and cache stats for all subnetIds once.
-	 *
-	 * @access private
-	 * @param integer $subnetId
-	 * @return integer
-	 */
-	private function get_subnet_ipaddr_count($subnetId) {
-		// check cache
-		$cached_item = $this->cache_check("subnet_ipaddr_count", 1);
-
-		if(is_object($cached_item)) {
-			$ipaddr_usage = $cached_item->result;
+		if ($this->has_slaves($subnet->id)) {
+			list($iptags, $leaf_nodes, $full_nodes) = $this->calculate_subnet_usage_stats_recursive($subnet);
 		} else {
-			// Generate usage array
-			$ipaddr_usage = $this->count_all_database_objects('ipaddresses', 'subnetId');
-			$this->cache_write ("subnet_ipaddr_count", (object) ["id"=>1, "result" => $ipaddr_usage]);
+			list($iptags, $leaf_nodes, $full_nodes) = $this->calculate_subnet_usage_stats_single($subnet);
 		}
 
-		// Ensure $ipaddr_usage[$subnetId] is defined.
-		return isset($ipaddr_usage[$subnetId]) ? $ipaddr_usage[$subnetId] : 0;
-	}
-
-	/**
-	 * Calculate usage for single subnet
-	 *
-	 * @access private
-	 * @param mixed $subnet
-	 * @param bool $detailed (default: false)
-	 * @return void
-	 */
-	private function calculate_single_subnet_details ($subnet, $detailed = false) {
-		$cached_item = $this->cache_check("single_subnet_details", "$subnet->id d=$detailed");
-		if(is_object($cached_item)) return $cached_item->result;
-
-		// init result
-		$out = array();
-
-		// marked as full ?
-		if ($subnet->isFull==1) {
-			// set values
-			$out["used"]              = $this->max_hosts ($subnet);
-			$out["maxhosts"]          = $out['used'];
-			$out["freehosts"]         = 0;
-			$out["freehosts_percent"] = 0;
-			$out["Used_percent"]      = 100;
+		// - Do not count orphaned IPs (IPs assigned to subnets with children).
+		// - Do not count IPs assigned to isFull subnets.
+		// - Do not count IPs assigned to children of full subnets.
+		// - Count reserved broadcast/network address of children only if they are leaves (children with no children). [no double counting]
+		// - Subnets with children are treated as address pools (IPs can only be assigned to leaf nodes, so only leaf nodes have network/broadcast)
+		// - isPool is honored.
+		// - ip.state = NULL or invalid foreign key (iptags) is mapped to "Used"
+		//
+		//   $iptags = ipTag and COUNT(*) of root + leaf nodes (excluding orphaned IPs & children of subnets marked isFull=1)
+		//   $leaf_nodes = leaves of the tree (excluding root node), for network/broadcast reserved IPs.
+		//   $full_nodes = children marked isFull (excluding children of subnets marked isFull=1)
+		//
+		//	Known Issues:
+		//  - IPs assigned to network/broadcast in isPool=0 subnets are double counted [Won't fix, too complex/slow to handle]
+		//
+		if (sizeof($leaf_nodes)>0 || sizeof($full_nodes)>0) {
+			$subnet->isPool = true;
 		}
-		else {
 
-			// set values
-			$out["used"]              = $this->get_subnet_ipaddr_count($subnet->id);
-			$out["maxhosts"]          = $this->max_hosts ($subnet);
+		$max_hosts = $this->max_hosts($subnet);
 
-			// percentage
-			$out["freehosts"]         = gmp_strval(gmp_sub($out['maxhosts'],$out['used']));
-			$out["freehosts_percent"] = round((($out['freehosts'] * 100.0) / $out['maxhosts']),2);
-			// detailed results ?
-			if ($detailed) {
-				// fetch full addresses
-				$addresses = $this->Addresses->fetch_subnet_addresses ($subnet->id);
-				// order - group by tag type
-				$tag_addresses = $this->calculate_subnet_usage_sort_addresses ($addresses);
-				// calculate use percentage for each address tag
-				foreach($this->address_types as $t) {
-					$out[$t['type']."_percent"] = round( ( ($tag_addresses[$t['type']] * 100.0) / $out['maxhosts']), 2 );
-				}
+		$total = $subnet->isFull ? $max_hosts : 0;
+		$subnet_usage["Used"] = $total;
+		$subnet_usage["Reserved"] = 0;
+
+		foreach($iptags as $i) {
+			$total = gmp_strval(gmp_add($total, $i->total));
+			$subnet_usage[$i->type] = $i->total;
+			$subnet_usage[$i->type."_percent"] = round((($i->total * 100.0) / $max_hosts),2);
+		}
+		foreach($leaf_nodes as $i) {
+			if ($this->has_network_broadcast($i)) {
+				$total = gmp_strval(gmp_add($total, 2));
+				$subnet_usage["Reserved"] = gmp_strval(gmp_add($subnet_usage["Reserved"], 2));
 			}
 		}
-		# result
-		$this->cache_write ("single_subnet_details", (object) ["id"=>"$subnet->id d=$detailed", "result" => $out]);
-		return $out;
+		foreach($full_nodes as $i) {
+			if ($this->has_network_broadcast($i)) {
+				$total = gmp_strval(gmp_add($total, 2));
+				$subnet_usage["Reserved"] = gmp_strval(gmp_add($subnet_usage["Reserved"], 2));
+			}
+			$full_count = $this->max_hosts($i);
+			$total = gmp_strval(gmp_add($total, $full_count));
+			$subnet_usage["Used"] = gmp_strval(gmp_add($subnet_usage["Used"], $full_count));
+		}
+
+		$subnet_usage['used'] = $total;
+		$subnet_usage["Used_percent"] = round((($subnet_usage['Used'] * 100.0) / $max_hosts),2);
+		$subnet_usage["Reserved_percent"] = round((($subnet_usage['Reserved'] * 100.0) / $max_hosts),2);
+
+		$subnet_usage['freehosts'] = gmp_strval(gmp_sub($max_hosts, $total));
+		$subnet_usage["freehosts_percent"] = round((($subnet_usage['freehosts'] * 100.0) / $max_hosts),2);
+
+		$subnet_usage["maxhosts"] = $max_hosts;
+
+		// Save results
+		$this->cache_write ("fn_calculate_subnet_usage", (object) ["id"=>$subnet->id, "result" => $subnet_usage]);
+		return $subnet_usage;
 	}
 
 	/**
-	 * Calculates subnet usage per host type
+	 * Calculates ipaddress usage info for a single subnet.
 	 *
 	 * @access private
-	 * @param false|array $addresses (default:false)
+	 * @param object $subnet
 	 * @return array
 	 */
-	private function calculate_subnet_usage_sort_addresses ($addresses = false) {
-		$count = array();
-		$count['Reserved'] = 0;
-		# fetch address types
-		$this->get_addresses_types();
-		# create array of keys with initial value of 0
-		foreach($this->address_types as $a) {
-			$count[$a['type']] = 0;
-		}
-		# count
-		if($addresses) {
-			foreach($addresses as $ip) {
-				$type = $this->translate_address_type($ip->state);
-				$count[$type] = gmp_strval(gmp_add($count[$type],1));
+	private function calculate_subnet_usage_stats_single ($subnet) {
+		$iptags = [];
+
+		try {
+			// COUNT(*) ipddresses belonging to $subnet if NOT isFull and group by ipTag (Used, Online, Offline, DHCP....)
+			if (!$subnet->isFull) {
+				$iptags = $this->Database->getObjectsQuery(
+					"SELECT ipTags.type,COUNT(*) AS total FROM ipTags
+					LEFT JOIN ipaddresses AS ip ON ipTags.id = coalesce(ip.state,2)
+					WHERE ip.subnetId = :id
+					GROUP BY 1;",
+					["id"=>$subnet->id]);
 			}
+
+		} catch (Exception $e) {
+			$this->Result->show("danger", _("Error: ").$e->getMessage());
 		}
-		# result
-		return $count;
+
+		return [$iptags, [], []];
 	}
 
 	/**
-	 * Returns array of address types
+	 * Calculates ipaddress, leaf node & full_node usage info or a recursive subnet tree.
 	 *
-	 * @access public
-	 * @return void
+	 * @access private
+	 * @param object $subnet
+	 * @return array
 	 */
-	public function get_addresses_types () {
-		# from cache
-		if($this->address_types == null) {
-        	# fetch
-        	$types = $this->fetch_all_objects ("ipTags", "id");
+	private function calculate_subnet_usage_stats_recursive ($subnet) {
+		$iptags = []; $leaf_nodes = []; $full_nodes = [];
 
-            # save to array
-			$types_out = array();
-			foreach($types as $t) {
-				$types_out[$t->id] = (array) $t;
+		try {
+			// Walk the tree from $subnet->id, stop walking if isFull = 1.
+			// COUNT(*) ipddresses belonging to any non-full children and group by ipTag (Used, Online, Offline, DHCP....)
+			// Don't count orphaned IPs (exclude any IPs belonging to subnets with children)
+
+			if ( $this->Database->is_cte_enabled() ) {
+				$iptags = $this->Database->getObjectsQuery(
+					"WITH RECURSIVE cte_query AS (
+						SELECT id,isFull FROM subnets WHERE id=:id
+						UNION ALL
+						SELECT subnets.id,subnets.isFull FROM subnets INNER JOIN cte_query ON subnets.masterSubnetId = cte_query.id WHERE cte_query.isFull=0
+					)
+					SELECT ipTags.type,COUNT(*) AS total FROM ipTags
+						LEFT JOIN ipaddresses AS ip ON ipTags.id = coalesce(ip.state,2)
+						WHERE ip.subnetId IN (SELECT cte_query.id FROM cte_query LEFT JOIN subnets AS s ON s.masterSubnetId = cte_query.id WHERE s.Id IS NULL AND cte_query.isFull = 0)
+						GROUP BY 1;",
+					["id"=>$subnet->id]);
+
+				$leaf_nodes = $this->Database->getObjectsQuery(
+					"WITH RECURSIVE cte_query AS (
+						SELECT id,isFull FROM subnets WHERE id=:id
+						UNION ALL
+						SELECT subnets.id,subnets.isFull FROM subnets INNER JOIN cte_query ON subnets.masterSubnetId = cte_query.id WHERE cte_query.isFull=0
+					)
+					SELECT id,subnet,mask,isPool FROM subnets
+						WHERE subnets.id IN (SELECT cte_query.id FROM cte_query LEFT JOIN subnets AS s ON s.masterSubnetId = cte_query.id WHERE s.Id IS NULL AND cte_query.isFull = 0)
+						AND isFull = 0
+						AND id <> :id",
+					["id"=>$subnet->id]);
+
+				$full_nodes = $this->Database->getObjectsQuery(
+					"WITH RECURSIVE cte_query AS (
+						SELECT id,isFull FROM subnets WHERE id=:id
+						UNION ALL
+						SELECT subnets.id,subnets.isFull FROM subnets INNER JOIN cte_query ON subnets.masterSubnetId = cte_query.id WHERE cte_query.isFull=0
+					)
+					SELECT subnet,mask,isPool FROM subnets AS s INNER JOIN cte_query AS c ON s.id = c.id
+						WHERE c.isFull = 1
+						AND s.id <> :id;",
+					["id"=>$subnet->id]);
+			} else {
+				// Emulate CTE
+				$iptags = $this->Database->emulate_cte_query(
+					"(id int(11), isFull BOOL)",																											// temporary table schema
+					"SELECT id,isFull FROM subnets WHERE id=:id", ["id"=>$subnet->id],																				// Anchor query
+					"SELECT subnets.id,subnets.isFull FROM subnets INNER JOIN cte_last ON subnets.masterSubnetId = cte_last.id WHERE cte_last.isFull=0",	// Recursive query (last iteration in cte_last)
+					"SELECT ipTags.type, COUNT(*) AS total FROM ipTags
+						LEFT JOIN ipaddresses AS ip ON ipTags.id = coalesce(ip.state, 2)
+						WHERE ip.subnetId IN (SELECT cte_query.id FROM cte_query LEFT JOIN subnets AS s ON s.masterSubnetId = cte_query.id WHERE s.Id IS NULL AND cte_query.isFull = 0)
+						GROUP BY 1",
+					false);
+
+				// Re-use cte_query temporary table from $iptags
+				$leaf_nodes = $this->Database->getObjectsQuery(
+					"SELECT id,subnet,mask,isPool FROM subnets
+						WHERE subnets.id IN (SELECT cte_query.id FROM cte_query LEFT JOIN subnets AS s ON s.masterSubnetId = cte_query.id WHERE s.Id IS NULL AND cte_query.isFull = 0)
+						AND isFull = 0
+						AND id <> :id",
+					["id"=>$subnet->id]);
+
+				$full_nodes = $this->Database->getObjectsQuery(
+					"SELECT subnet,mask,isPool FROM subnets AS s INNER JOIN cte_query AS c ON s.id = c.id
+						WHERE c.isFull = 1
+						AND s.id <> :id;",
+					["id"=>$subnet->id]);
 			}
-			# save to cache
-			$this->address_types = $types_out;
-		}
-	}
 
-	/**
-	 * Translates address type from index (int) to type
-	 *
-	 *	e.g.: 0 > offline
-	 *
-	 * @access public
-	 * @param mixed $index
-	 * @return mixed
-	 */
-	public function translate_address_type ($index) {
-		# fetch
-		$this->get_addresses_types();
-		# return
-		return isset($this->address_types[$index]["type"]) ? $this->address_types[$index]["type"] : "Used";
+		} catch (Exception $e) {
+			$this->Result->show("danger", _("Error: ").$e->getMessage());
+		}
+
+		return [$iptags, $leaf_nodes, $full_nodes];
 	}
 
 	/**
@@ -1482,17 +1525,14 @@ class Subnets extends Common_functions {
 	public function has_network_broadcast($subnet) {
 		$subnet = (object) $subnet;
 
-		# Address/NAT pools
-		if ($subnet->isPool)
-			return false;
-
-		# IPv4/IPv6 networks
 		$type = $this->identify_address($subnet->subnet);
 
-		if (($type == 'IPv4' && $subnet->mask<31) || ($type == 'IPv6' && $subnet->mask<127))
-			return true;
-		else
+		# Address/NAT pools & IPv6
+		if ($type == 'IPv6' || (property_exists($subnet, 'isPool') && $subnet->isPool))
 			return false;
+
+		# IPv4, handle /32 & /31
+		return ($subnet->mask<31) ? true : false;
 	}
 
 	/**
@@ -1512,6 +1552,29 @@ class Subnets extends Common_functions {
 			$range_end   = gmp_strval(gmp_sub($range_end, 1));
 		}
 		return [$range_start, $range_end];
+	}
+
+	/**
+	 * Fetches all possible subnet addresses
+	 *
+	 * @access private
+	 * @param $subnet		//subnet object
+	 * @return array		//array of ip addresses in decimal format
+	 */
+	public function get_all_possible_subnet_addresses ($subnet) {
+		$subnet = (object) $subnet;
+		$ips = [];
+
+		if (property_exists($subnet, 'subnet') && property_exists($subnet, 'mask') ) {
+			list($ip, $subnet_end) = $this->subnet_boundaries($subnet);
+
+			while (gmp_cmp($ip, $subnet_end)<= 0) {
+				$ips[] = $ip;
+				$ip = gmp_strval(gmp_add($ip, 1));
+			}
+		}
+
+		return $ips;
 	}
 
 	/**
@@ -1683,7 +1746,7 @@ class Subnets extends Common_functions {
 	 */
 	public function decimal_network_address($decimalIP, $mask) {
 		if ($decimalIP === false) return false;
-		$type = ($decimalIP <= 4294967295) ? 'IPv4' : 'IPv6';
+		$type = ($decimalIP <= 4294967295 && $mask <= 32) ? 'IPv4' : 'IPv6';
 		// Calculate network address (decimal) by clearing the /mask bits
 		$network_address = gmp_and($decimalIP, $this->gmp_bitmasks[$type][$mask]['network']);
 		return gmp_strval($network_address);
@@ -1699,7 +1762,7 @@ class Subnets extends Common_functions {
 	 */
 	public function decimal_broadcast_address($decimalIP, $mask) {
 		if ($decimalIP === false) return false;
-		$type = ($decimalIP <= 4294967295) ? 'IPv4' : 'IPv6';
+		$type = ($decimalIP <= 4294967295 && $mask <= 32) ? 'IPv4' : 'IPv6';
 		// Calculate broadcast address (decimal) by setting the /mask bits
 		$network_broadcast = gmp_or($decimalIP, $this->gmp_bitmasks[$type][$mask]['broadcast']);
 		return gmp_strval($network_broadcast);
@@ -1713,9 +1776,9 @@ class Subnets extends Common_functions {
 	private function network_or_broadcast_address_in_use($subnet) {
 		$subnet = (object) $subnet;
 
-		$type = ($subnet->subnet <= 4294967295) ? 'IPv4' : 'IPv6';
+		$type = ($subnet->subnet <= 4294967295 && $subnet->mask <= 32) ? 'IPv4' : 'IPv6';
 
-		if (($type=="IPv4" && $subnet->mask>=31) || ($type=="IPv6" && $subnet->mask>=127))
+		if (($type=="IPv4" && $subnet->mask>=31) || $type=="IPv6")
 			return false;
 
 		$network   = $this->decimal_network_address($subnet->subnet, $subnet->mask);
@@ -1879,7 +1942,7 @@ class Subnets extends Common_functions {
 	 */
 	public function get_freespacemap_last_available ($fsm, $mask, $count) {
 		if ($mask < 0 || $mask > $fsm['max_search_mask']) {
-			return array (subnets => array(), truncated => false);
+			return array ('subnets' => array(), 'truncated' => false);
 		}
 
 		$subnets = array();
@@ -1902,7 +1965,7 @@ class Subnets extends Common_functions {
 
 			while (gmp_cmp($candidate_start, $range['start']) >= 0) {
 				if ($count > 0 && ++$discovered > $count) {
-					return array (subnets => $subnets, truncated => true);
+					return array ('subnets' => $subnets, 'truncated' => true);
 				}
 				$subnets[] = $this->transform_to_dotted(gmp_strval($candidate_start)) . '/' . $mask;
 
@@ -1937,7 +2000,7 @@ class Subnets extends Common_functions {
 	 */
 	public function verify_cidr_address ($cidr, $issubnet = true) {
 		# first verify address and mask format
-		if(strlen($error = $this->verify_cidr ($cidr))>0)	{ return $error; }
+		if(!is_blank($error = $this->verify_cidr ($cidr)))	{ return $error; }
 		# make checks
 		return $this->identify_address ($cidr)=="IPv6" ? $this->verify_cidr_address_IPv6 ($cidr, $issubnet) : $this->verify_cidr_address_IPv4 ($cidr, $issubnet);
 	}
@@ -1981,7 +2044,7 @@ class Subnets extends Common_functions {
         else {
             $subnet = $this->Net_IPv6->getNetmask($cidr);			//validate subnet
             $subnet = $this->Net_IPv6->compress($subnet);			//get subnet part
-            $subnetParse = explode("/", $cidr);
+            $subnetParse = $this->cidr_network_and_mask($cidr);
             # Compress entered IPv4/IPv6 address
             $subnetParse[0] = inet_ntop(inet_pton($subnetParse[0]));
             # validate that subnet is subnet
@@ -1998,14 +2061,40 @@ class Subnets extends Common_functions {
 	 * @return string
 	 */
 	public function verify_cidr ($cidr) {
-		$cidr =  explode("/", $cidr);
+		$cidr =  $this->cidr_network_and_mask($cidr);
 		# verify network part
-	    if(strlen($cidr[0])==0 || strlen($cidr[1])==0) 				{ return _("Invalid CIDR format!"); }
+	    if(is_blank($cidr[0]) || is_blank($cidr[1])) 				{ return _("Invalid CIDR format!"); }
 	    # verify network part
 		if($this->identify_address_format ($cidr[0])!="dotted")		{ return _("Invalid Network!"); }
 		# verify mask
 		if(!is_numeric($cidr[1]))									{ return _("Invalid netmask"); }
 		if($this->get_max_netmask ($cidr[0])<$cidr[1])				{ return _("Invalid netmask"); }
+	}
+
+	/**
+	 * Split CIDR into network and mask
+	 *
+	 * @access public
+	 * @param string $cidr (cidr)
+	 * @return array
+	 */
+	public function cidr_network_and_mask($cidr) {
+		$err = [null, null];
+
+		if (!is_string($cidr))
+			return $err;
+
+		$a = explode("/", $cidr, 2);
+
+		if (!is_array($a))
+			return $err;
+
+		$a = array_pad($a, 2, null);
+
+		$a[0] = !is_null($a[0]) ? trim($a[0]) : null;
+		$a[1] = !is_null($a[1]) ? trim($a[1]) : null;
+
+		return $a;
 	}
 
 	/**
@@ -2038,7 +2127,7 @@ class Subnets extends Common_functions {
 						if($this->verify_overlapping ($new_subnet,  $this->transform_to_dotted($existing_subnet->subnet).'/'.$existing_subnet->mask)!==false) {
 							$Section = new Sections($this->Database);
 							$section = $Section->fetch_section('id', $existing_subnet->sectionId);
-							return _("Subnet $new_subnet overlaps with").' '. $this->transform_to_dotted($existing_subnet->subnet).'/'.$existing_subnet->mask." (".$existing_subnet->description.") "._("in section")." ".$section->name;
+							return _("Subnet")." ".$new_subnet." "._("overlaps with").' '. $this->transform_to_dotted($existing_subnet->subnet).'/'.$existing_subnet->mask." (".$existing_subnet->description.") "._("in section")." ".$section->name;
 						}
 					}
 	            }
@@ -2046,6 +2135,53 @@ class Subnets extends Common_functions {
 	    }
 	    # default false - does not overlap
 	    return false;
+	}
+
+	/**
+	 * Verifies VRF overlapping - globally
+	 *
+	 * @method verify_vrf_overlapping
+	 * @param  string $cidr
+	 * @param  int $vrfId
+	 * @param  int $subnetId (default: 0)
+	 * @param  int $masterSubnetId (default: 0)
+	 * @return false|string
+	 */
+	public function verify_vrf_overlapping ($cidr, $vrfId, $subnetId=0, $masterSubnetId=0) {
+		// fix null vrfid
+		$vrfId = is_numeric($vrfId) ? $vrfId : 0;
+		// fix null masterSubnetId
+		$masterSubnetId = is_numeric($masterSubnetId) ? $masterSubnetId : 0;
+
+		// fetch all overlapping subnets in VRF globally
+		$overlaping = $this->fetch_overlapping_subnets($cidr, 'vrfId', $vrfId);
+
+		if (empty($overlaping))
+			return false;
+
+		if ($subnetId > 0) {
+			$this->reset_subnet_slaves_recursive();
+			$this->fetch_subnet_slaves_recursive($subnetId);
+			$excluded_ids = array_merge($this->slaves ?: [], $this->fetch_parents_recursive($subnetId) ?: []);
+		} else {
+			$excluded_ids = $this->fetch_parents_recursive($masterSubnetId) ?: [];
+			$excluded_ids[] = $masterSubnetId;
+		}
+
+		// Remove parents and children
+		foreach ($overlaping as $i => $subnet) {
+			if ($subnet->isFolder || (int) $subnet->vrfId != $vrfId || in_array($subnet->id, $excluded_ids)) {
+				unset($overlaping[$i]);
+			}
+		}
+		// Re-index
+		$overlaping = array_values(array_filter($overlaping));
+
+		if (empty($overlaping))
+			return false;
+
+		$section = $this->fetch_object('sections', 'id', $overlaping[0]->sectionId);
+		return _("Subnet") . " " . $cidr . " " . _("overlaps with") . ' ' . $this->transform_to_dotted($overlaping[0]->subnet) . '/' . $overlaping[0]->mask . " (" . $overlaping[0]->description . ") " . _("in section") . " " . $section->name;
 	}
 
 	/**
@@ -2085,47 +2221,12 @@ class Subnets extends Common_functions {
 						            if($existing_subnet->isFolder!=1) {
 							            # check overlapping
 										if($this->verify_overlapping ($cidr,  $this->transform_to_dotted($existing_subnet->subnet).'/'.$existing_subnet->mask)!==false) {
-											 return _("Subnet $cidr overlaps with").' '. $this->transform_to_dotted($existing_subnet->subnet).'/'.$existing_subnet->mask." (".$existing_subnet->description.")";
+											 return _("Subnet")." ".$cidr." "._("overlaps with").' '. $this->transform_to_dotted($existing_subnet->subnet).'/'.$existing_subnet->mask." (".$existing_subnet->description.")";
 										}
 									}
 					            }
 							}
 						}
-					}
-				}
-			}
-		}
-	    # default false - does not overlap
-	    return false;
-	}
-
-	/**
-	 * Verifies VRF overlapping - globally
-	 *
-	 * @method verify_vrf_overlapping
-	 * @param  string $cidr
-	 * @param  int $vrfId
-	 * @param  int $subnetId (default: 0)
-	 * @param  int $masterSubnetId (default: 0)
-	 * @return false|string
-	 */
-	public function verify_vrf_overlapping ($cidr, $vrfId, $subnetId=0, $masterSubnetId=0) {
-		# fetch all overlapping subnets in VRF globally
-		$all_subnets = $this->fetch_overlapping_subnets($cidr, 'vrfId', $vrfId);
-		# fetch all parents
-		$allParents = $subnetId!=0 ? $this->fetch_parents_recursive($subnetId) : $this->fetch_parents_recursive($masterSubnetId);
-		# add self
-		$allParents[] = $masterSubnetId;
-
-		if($all_subnets!==false && is_array($all_subnets)) {
-			foreach ($all_subnets as $existing_subnet) {
-	            // ignore folders - precaution and ignore self for edits
-	            if($existing_subnet->isFolder!=1 && $existing_subnet->id!==$subnetId && !in_array($existing_subnet->id, $allParents)) {
-		            # check overlapping globally if subnet is not nested
-					if($this->verify_overlapping ($cidr,  $this->transform_to_dotted($existing_subnet->subnet).'/'.$existing_subnet->mask)!==false) {
-						$Section = new Sections($this->Database);
-						$section = $Section->fetch_section('id', $existing_subnet->sectionId);
-						return _("Subnet $cidr overlaps with").' '. $this->transform_to_dotted($existing_subnet->subnet).'/'.$existing_subnet->mask." (".$existing_subnet->description.") "._("in section")." ".$section->name;
 					}
 				}
 			}
@@ -2162,7 +2263,7 @@ class Subnets extends Common_functions {
 			            if($existing_subnet->isFolder!=1) {
 				            # check overlapping
 				            if($this->verify_overlapping ($new_subnet,  $this->transform_to_dotted($existing_subnet->subnet).'/'.$existing_subnet->mask)!==false) {
-								 return _("Subnet $new_subnet overlaps with").' '. $this->transform_to_dotted($existing_subnet->subnet).'/'.$existing_subnet->mask." (".$existing_subnet->description.")";
+								 return _("Subnet")." ".$new_subnet." "._("overlaps with").' '. $this->transform_to_dotted($existing_subnet->subnet).'/'.$existing_subnet->mask." (".$existing_subnet->description.")";
 				            }
 						}
 		            }
@@ -2226,8 +2327,8 @@ class Subnets extends Common_functions {
 	public function verify_overlapping ($cidr1, $cidr2, $check_if_nested = false) {
 		if (empty($cidr1) || empty($cidr2)) return false;
 
-		$c1 = explode('/', $cidr1);
-		$c2 = explode('/', $cidr2);
+		$c1 = $this->cidr_network_and_mask($cidr1);
+		$c2 = $this->cidr_network_and_mask($cidr2);
 
 		if (filter_var($c1[0], FILTER_VALIDATE_IP)===false) return false;
 		if (filter_var($c2[0], FILTER_VALIDATE_IP)===false) return false;
@@ -2412,7 +2513,7 @@ class Subnets extends Common_functions {
 					foreach($nested as $nested_subnet) {
 						//if masks and subnets match they are same, error!
 						if($nested_subnet->subnet==$subnet && $nested_subnet->mask==$mask) {
-							$this->Result->show("danger", _("Subnet it same as ").$this->transform_to_dotted($nested_subnet->subnet)."/$nested_subnet->mask - $nested_subnet->description)", true);
+							$this->Result->show("danger", _("Subnet is same as")." ".$this->transform_to_dotted($nested_subnet->subnet)."/$nested_subnet->mask - $nested_subnet->description)", true);
 						}
 						//verify that all nested are inside its parent
 						if(!$this->is_subnet_inside_subnet ( $this->transform_to_dotted($nested_subnet->subnet)."/".$nested_subnet->mask, $this->transform_to_dotted($subnet)."/".$mask)) {
@@ -2499,7 +2600,7 @@ class Subnets extends Common_functions {
 					foreach($newsubnets as $new_subnet) {
 						$new_subnet = (object) $new_subnet;
 						if($this->verify_overlapping ($this->transform_to_dotted($new_subnet->subnet)."/".$new_subnet->mask, $this->transform_to_dotted($nested_subnet->subnet)."/".$nested_subnet->mask)===true) {
-							$this->Result->show("danger", _("Subnet overlapping - ").$this->transform_to_dotted($new_subnet->subnet)."/".$new_subnet->mask." overlaps with ".$this->transform_to_dotted($nested_subnet->subnet)."/".$nested_subnet->mask, true);
+							$this->Result->show("danger", _("Subnet overlapping - ").$this->transform_to_dotted($new_subnet->subnet)."/".$new_subnet->mask." "._("overlaps with")." ".$this->transform_to_dotted($nested_subnet->subnet)."/".$nested_subnet->mask, true);
 						}
 					}
 				}
@@ -2739,7 +2840,7 @@ class Subnets extends Common_functions {
     	// ipv4
     	if ($this->identify_address ($address)=="IPv4") {
         	// to array
-        	$mac_tmp = explode(".", $address);
+        	$mac_tmp = pf_explode(".", $address);
         	// check 3rd octet
         	if ($mac_tmp[1]>=128) { $mac_tmp[1]=$mac_tmp[1]-128; }
         	// create mac
@@ -2751,7 +2852,7 @@ class Subnets extends Common_functions {
             	//expand
             	$expanded = $this->Net_IPv6->uncompress($address);
             	// to array
-                $mac_tmp = explode(":", $expanded);
+                $mac_tmp = pf_explode(":", $expanded);
             	$mac = strtolower("33:33:".str_pad(dechex($mac_tmp[4]),2,"0",STR_PAD_LEFT).":".str_pad(dechex($mac_tmp[5]),2,"0",STR_PAD_LEFT).":".str_pad(dechex($mac_tmp[6]),2,"0",STR_PAD_LEFT).":".str_pad(dechex($mac_tmp[7]),2,"0",STR_PAD_LEFT));
         	}
         	else {
@@ -2856,22 +2957,22 @@ class Subnets extends Common_functions {
 	public function validate_multicast_mac ($mac, $sectionId, $vlanId, $unique_required="vlan", $address_id = 0) {
     	// first put it to common format (1)
     	$mac = $this->reformat_mac_address ($mac);
-    	$mac_delimited =  explode(":", $mac);
+    	$mac_delimited =  pf_explode(":", $mac);
     	// we permit empty
-        if (strlen($mac)==0) {
+        if (is_blank($mac)) {
             return true;
         }
     	// validate mac
     	elseif (preg_match('/^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/', $mac) != 1) {
-        	return "Invalid MAC address";
+        	return _("Invalid MAC address");
     	}
     	// multicast check
     	elseif (!($mac_delimited[0]=="33" && $mac_delimited[1]=="33") && !($mac_delimited[0]=="01" && $mac_delimited[1]=="00" && $mac_delimited[2]=="5e")) {
-            return "Not multicast MAC address";
+            return _("Not multicast MAC address");
     	}
     	// check if it already exists
     	elseif ($this->multicast_address_exists ($this->reformat_mac_address($mac, 4), $sectionId, $vlanId, $unique_required, $address_id)) {
-        	return "MAC address already exists";
+        	return _("MAC address already exists");
     	}
     	else {
         	return true;
@@ -2923,15 +3024,15 @@ class Subnets extends Common_functions {
 		$cached_item = $this->cache_check('subnet_permissions', "p=$subnet->permissions s=$subnet->sectionId");
 		if(is_object($cached_item)) return $cached_item->result;
 
-		$subnetP = json_decode(@$subnet->permissions, true);
+		$subnetP = pf_json_decode(@$subnet->permissions, true);
 
 		# set section permissions
 		$Section = new Sections ($this->Database);
 		$section = $Section->fetch_section ("id", $subnet->sectionId);
-		$sectionP = json_decode($section->permissions, true);
+		$sectionP = pf_json_decode($section->permissions, true);
 
 		# get all user groups
-		$groups = json_decode($user->groups, true);
+		$groups = pf_json_decode($user->groups, true);
 
 		# default permission
 		$out = 0;
@@ -2987,7 +3088,7 @@ class Subnets extends Common_functions {
 			// loop
 			foreach ($subnets as $s) {
 				// to array
-				$s_old_perm = json_decode($s->permissions, true);
+				$s_old_perm = pf_json_decode($s->permissions, true);
 				// removed
 				if (is_array($removed_permissions)) {
 					foreach ($removed_permissions as $k=>$p) unset($s_old_perm[$k]);
@@ -3063,7 +3164,7 @@ class Subnets extends Common_functions {
 			$subnetsTree->walk(false);
 		}
 
-		$menu = new SubnetsMenu($this, $_COOKIE['sstr'], $_COOKIE['expandfolders'], $_GET['subnetId']);
+		$menu = new SubnetsMenu($this, @$_COOKIE['sstr'], @$_COOKIE['expandfolders'], @$_GET['subnetId']);
 		$menu->subnetsTree($subnetsTree);
 
 		return $menu->html();
@@ -3113,7 +3214,7 @@ class Subnets extends Common_functions {
 			if($item['domainId']!=1) {
     			$domain = $this->fetch_object("vlanDomains", "id", $item['domainId']);
     			if ($domain!==false) {
-        			$item['l2domain'] = " <span class='badge badge1 badge5' rel='tooltip' title='VLAN is in domain $domain->name'>$domain->name</span>";
+        			$item['l2domain'] = " <span class='badge badge1 badge5' rel='tooltip' title='"._('VLAN is in domain')." $domain->name'>$domain->name</span>";
     			}
 			}
 
@@ -3152,7 +3253,7 @@ class Subnets extends Common_functions {
 							$html[] = '<a href="'.create_link("subnets",$subnet['sectionId'],$subnet['id']).'" rel="tooltip" data-placement="right" title="'.$this->transform_to_dotted($subnet['subnet']).'/'.$subnet['mask'].'">'.$subnet['description'].'</a></li>';
 						}
 						else {
-							$html[] = '<li class="leaf '.$active.'""><i class="'.$leafClass.' fa fa-gray fa-angle-right"></i>';
+							$html[] = '<li class="leaf '.$active.'"><i class="'.$leafClass.' fa fa-gray fa-angle-right"></i>';
 							$html[] = '<a href="'.create_link("subnets",$subnet['sectionId'],$subnet['id']).'" rel="tooltip" data-placement="right" title="'.$subnet['description'].'">'.$this->transform_to_dotted($subnet['subnet']).'/'.$subnet['mask'].'</a></li>';
 						}
 					}
@@ -3244,7 +3345,7 @@ class Subnets extends Common_functions {
 							$html[] = '<a href="'.create_link("subnets",$subnet['sectionId'],$subnet['id']).'" rel="tooltip" data-placement="right" title="'.$this->transform_to_dotted($subnet['subnet']).'/'.$subnet['mask'].'">'.$subnet['description'].'</a></li>';
 						}
 						else {
-							$html[] = '<li class="leaf '.$active.'""><i class="'.$leafClass.' fa fa-gray fa-angle-right"></i>';
+							$html[] = '<li class="leaf '.$active.'"><i class="'.$leafClass.' fa fa-gray fa-angle-right"></i>';
 							$html[] = '<a href="'.create_link("subnets",$subnet['sectionId'],$subnet['id']).'" rel="tooltip" data-placement="right" title="'.$subnet['description'].'">'.$this->transform_to_dotted($subnet['subnet']).'/'.$subnet['mask'].'</a></li>';
 						}
 					}
@@ -3449,11 +3550,11 @@ class Subnets extends Common_functions {
 		// set subnet allocations
 		$this->define_ripe_arin_subnets ();
 		// take only first bit of ip address to match /8 delegations
-		$subnet_check = reset(explode(".", $subnet));
+		$subnet_check = reset(pf_explode(".", $subnet));
 		// ripe or arin?
 		if (in_array($subnet_check, $this->ripe))		{ return $this->query_ripe ($subnet); }
 		elseif (in_array($subnet_check, $this->arin))	{ return $this->query_arin ($subnet); }
-		else											{ return array("result"=>"error", "error"=>"$subnet Not RIPE or ARIN subnet"); }
+		else											{ return array("result"=>"error", "error"=>"$subnet "._("Not RIPE or ARIN subnet")); }
 	}
 
 
@@ -3461,7 +3562,7 @@ class Subnets extends Common_functions {
 	 * Queries ripe for subnet information
 	 *
 	 *	Example:
-	 *		curl -X GET -H "Accept: application/json" "http://rest.db.ripe.net/ripe/inetnum/185.72.140.0/24"
+	 *		curl -X GET -H "Accept: application/json" "https://rest.db.ripe.net/ripe/inetnum/185.72.140.0/24"
 	 *
 	 * @access private
 	 * @param mixed $subnet
@@ -3473,12 +3574,12 @@ class Subnets extends Common_functions {
 		// not existings
 		if ($ripe_result['result_code']==404) {
 			// return array
-			return array("result"=>"error", "error"=>$ripe_result['result']->errormessages->errormessage[0]->text);
+			return array("result"=>"error", "error"=>$ripe_result['error_msg']);
 		}
 		// fail
 		if ($ripe_result['result_code']!==200) {
 			// return array
-			return array("result"=>"error", "error"=>"Error connecting to ripe rest api : ".$ripe_result['error_msg']);
+			return array("result"=>"error", "error"=>_("Error connecting to RIPE REST API")." : ".$ripe_result['error_msg']);
 		}
 		else {
     		$out = array();
@@ -3502,7 +3603,7 @@ class Subnets extends Common_functions {
 	 */
 	private function query_arin ($subnet) {
 		// remove netmask
-		$subnet_arr = explode("/", $subnet);
+		$subnet_arr = $this->cidr_network_and_mask($subnet);
 		$subnet = reset($subnet_arr);
 		// fetch
 		$arin_result = $this->ripe_arin_fetch ("arin", null, $subnet);
@@ -3510,12 +3611,12 @@ class Subnets extends Common_functions {
 		// not existings
 		if ($arin_result['result_code']==404) {
 			// return array
-			return array("result"=>"error", "error"=>"Subnet not found");
+			return array("result"=>"error", "error"=>_("Subnet not found"));
 		}
 		// fail
 		if ($arin_result['result_code']!==200) {
 			// return array
-			return array("result"=>"error", "error"=>"Error connecting to arin rest api : ".$ripe_result['error_msg']);
+			return array("result"=>"error", "error"=>_("Error connecting to ARIN REST API")." : ".$arin_result['error_msg']);
 		}
 		else {
     		$out = array();
@@ -3550,18 +3651,28 @@ class Subnets extends Common_functions {
 	 * Fetch details from ripe or arin
 	 *
 	 * @access private
-	 * @param string $network (default: "ripe")
-	 * @param string $type (default: "inetnum")
+	 * @param string $network
+	 * @param string $type
 	 * @param mixed $subnet
 	 * @return array
 	 */
-	private function ripe_arin_fetch ($network = "ripe", $type = "inetnum", $subnet) {
+	private function ripe_arin_fetch ($network, $type, $subnet) {
+		// Validate $subnet
+		$cidr = array_pad(explode("/", $subnet), 2, null);
+		if (
+			(sizeof($cidr) > 2) ||
+			(filter_var($cidr[0], FILTER_VALIDATE_IP) === false) ||
+			(!is_null($cidr[1]) && filter_var($cidr[1], FILTER_VALIDATE_INT) === false)
+		) {
+			return ["result_code" => 404, "error_msg" => _("Invalid request")];
+		}
+
 		// set url
-		$url = $network=="ripe" ? "http://rest.db.ripe.net/ripe/$type/$subnet" : "http://whois.arin.net/rest/nets;q=$subnet?showDetails=true&showARIN=false&showNonArinTopLevelNet=false&ext=netref2";
+		$url = $network=="ripe" ? "https://rest.db.ripe.net/ripe/$type/$subnet" : "https://whois.arin.net/rest/nets;q=$subnet?showDetails=true&showARIN=false&showNonArinTopLevelNet=false&ext=netref2";
 
 		$result = $this->curl_fetch_url($url, ["Accept: application/json"]);
 
-		$result['result'] = json_decode($result['result']);
+		$result['result'] = pf_json_decode($result['result']);
 
 		// result
 		return $result;
@@ -3576,8 +3687,8 @@ class Subnets extends Common_functions {
 	 */
 	public function ripe_fetch_subnets ($as) {
 		// numeric check
-		if(!is_numeric($as)) {
-			$this->Result->show("danger", "Invalid AS", false);
+		if(filter_var($as, FILTER_VALIDATE_INT) === false) {
+			$this->Result->show("danger", _("Invalid AS"), false);
 		}
 		//open connection
 		$ripe_connection = fsockopen("whois.ripe.net", 43, $errno, $errstr, 5);
@@ -3593,16 +3704,16 @@ class Subnets extends Common_functions {
 		    while (!feof($ripe_connection)) { $out .= fgets($ripe_connection); }
 
 		    //parse it
-		    $out = explode("\n", $out);
+		    $out = pf_explode("\n", $out);
 
 		    //we only need route
 		    foreach($out as $line) {
-				if (strlen(strstr($line,"route"))>0) {
+				if (!is_blank(strstr($line,"route"))) {
     				if(!isset($subnet)) $subnet = array();
 					//replace route6 with route
 					$line = str_replace("route6:", "route:", $line);
 					//only take IP address
-					$line = explode("route:", $line);
+					$line = pf_explode("route:", $line);
 					$line = trim($line[1]);
 					//set result
 					$subnet[] = $line;

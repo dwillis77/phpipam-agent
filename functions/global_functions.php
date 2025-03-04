@@ -9,6 +9,15 @@ if(!function_exists('gettext')) {
 }
 
 /**
+ * Disable php errors on output scripts (json,xml,crt,sql...)
+ */
+function disable_php_errors() {
+        # Don't corrupt json,xml,sql,png... output with php errors!
+        ini_set('display_errors', 0);
+        ini_set('display_startup_errors', 0);
+}
+
+/**
  * Supported in PHP 5 >= 5.6.0
  * A timing safe equals comparison more info here: http://blog.ircmaxell.com/2014/11/its-all-about-time.html.
  */
@@ -138,3 +147,16 @@ function php_feature_missing($required_extensions = null, $required_functions = 
 
 	return false;
 }
+
+/**
+ * Do we have data with length >1
+ *
+ * @param mixed $data
+ * @return boolean
+ */
+function is_blank($data) {
+        return (!isset($data) || strlen($data)==0) ? true : false;
+}
+
+// Include backwards compatibility wrapper functions.
+require_once('php_poly_fill.php');

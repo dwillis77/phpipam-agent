@@ -75,9 +75,9 @@ class phpipamAgent extends Common_functions {
 	 * (default value: null)
 	 *
 	 * @var null|object
-	 * @access private
+	 * @access public
 	 */
-	private $agent_details = null;
+	public $agent_details = null;
 
 	/**
 	 * connection type - selected
@@ -169,6 +169,10 @@ class phpipamAgent extends Common_functions {
 		$this->Result = new Result ();
 		// read config file
 		$this->config = (object) Config::ValueOf('config');
+        // save database
+        $this->Database = $Database;
+        // validate DB connection, get agent ID and settings
+        $this->mysql_init();
 		// set time
 		$this->set_now_time ();
 		// set valid connection types
@@ -187,8 +191,6 @@ class phpipamAgent extends Common_functions {
 		$this->validate_threading ();
 		// validate ping path
 		$this->validate_ping_path ();
-		// save database
-		$this->Database = $Database;
 	}
 
 	/**
@@ -231,7 +233,7 @@ class phpipamAgent extends Common_functions {
 	}
 
 	/**
-	 * Sets valid ping types (ping, fping, pear)
+	 * Sets valid ping types (ping, fping, pear, db)
 	 *
 	 * @access private
 	 * @return void
@@ -241,7 +243,8 @@ class phpipamAgent extends Common_functions {
 		$this->ping_types = array(
 							'ping',
 							'fping',
-							'pear'
+							'pear',
+                            'db'
 							);
 	}
 
@@ -356,9 +359,23 @@ class phpipamAgent extends Common_functions {
 	 * @return void
 	 */
 	private function validate_ping_path () {
-		if(!file_exists($this->config->pingpath)) {
-			$this->Result->throw_exception (500, "ping executable does not exist - \$config['pingpath'] = \"".escape_input($this->config->pingpath)."\"");
-		}
+        if($this->Scan->ping_type == "fping") {
+            if(!file_exists($this->Scan->fping_path)) {
+                if($this->config->method == "db") {
+                    $this->Result->throw_exception (500, "fping executable does not exist - defined in database: \"".escape_input($this->Scan->fping_path)."\"");
+                } else {
+                    $this->Result->throw_exception (500, "fping executable does not exist - \$config['pingpath'] = \"".escape_input($this->config->pingpath)."\"");
+                }
+            }
+        } else {
+            if(!file_exists($this->Scan->ping_path)) {
+                if($this->config->method == "db") {
+                    $this->Result->throw_exception (500, "ping executable does not exist - defined in database: \"".escape_input($this->Scan->ping_path)."\"");
+                } else {
+                    $this->Result->throw_exception (500, "ping executable does not exist - \$config['pingpath'] = \"".escape_input($this->config->pingpath)."\"");
+                }
+            }
+        }
 	}
 
 	/**
@@ -372,7 +389,9 @@ class phpipamAgent extends Common_functions {
 		$required_ext = array("gmp", "json", "pcntl");
 
 		// if mysql selected
-		if ($this->config->type=="mysql") {
+		//if ($this->type=="mysql") {
+        // bugfix - should be $this->conn_type not $this->type
+        if ($this->conn_type=="mysql") {
 			$required_ext = array_merge($required_ext, array("PDO", "pdo_mysql"));
 		}
 		// if non-threaded permitted remove pcntl requirement
@@ -521,6 +540,26 @@ class phpipamAgent extends Common_functions {
 		// we have subnets, now check
 		return $this->scan_type == "update" ? $this->mysql_scan_update_host_statuses () : $this->mysql_scan_discover_hosts ();
 	}
+
+    /**
+     * Test DB connection and set agent ID
+     *
+     * @access public
+     * @return void
+     */
+    public function mysql_init () {
+        // test connection
+        $this->mysql_test_connection ();
+
+        // validate key and fetch agent
+        $this->mysql_validate_key ();
+
+        // fetch settings
+        $this->mysql_fetch_settings ();
+
+        // initialize scan object
+        $this->scan_set_object ();
+    }
 
 	/**
 	 * Test connection to database server.
@@ -987,7 +1026,7 @@ class phpipamAgent extends Common_functions {
 	private function mysql_scan_discover_hosts_ping_nonthreaded ($subnets, $addresses) {
 
 		for ($i = 0; $i <= sizeof($addresses); $i++) {
-			ping_address( $this->transform_to_dotted( $addresses[$i]['ip_addr']) );
+			ping_address( $this->transform_to_dotted( $addresses[$z]['ip_addr']) );
 		}
 
 		//ok, we have all available addresses, rekey them
@@ -1085,7 +1124,7 @@ class phpipamAgent extends Common_functions {
 	 */
 	private function mysql_scan_update_write_to_db ($subnets) {
 		# reset db connection for ping / pear
-		if ($this->scan_type!=="fping") {
+		if ($this->can_type!=="fping") {
 			unset($this->Database);
 			$this->Database = new Database_PDO ();
 		}

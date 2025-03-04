@@ -139,6 +139,22 @@ class Result {
 	}
 
 	/**
+	 * Return HTTP status code and message. eg 404 not found/permission denied error
+	 *
+	 * @param int $code
+	 * @param string $message
+	 * @return void
+	 */
+	public function fatal_http_error($code, $message = "") {
+		http_response_code($code);
+		if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && $_SERVER['HTTP_X_REQUESTED_WITH'] == "XMLHttpRequest") {
+			$this->show("danger", $message, true, true);
+		} else {
+			$this->show("danger", $message, true);
+		}
+	}
+
+	/**
 	 * Alias for show method for backwards compatibility
 	 *
 	 * @access public
@@ -234,11 +250,11 @@ class Result {
 	 * Sets new header and throws exception
 	 *
 	 * @access public
-	 * @param int $code (default: 500)
+	 * @param int $code
 	 * @param mixed $exception
 	 * @return void
 	 */
-	public function throw_exception ($code = 500, $exception) {
+	public function throw_exception ($code, $exception) {
 		// set failed
 		$this->exception = true;
 

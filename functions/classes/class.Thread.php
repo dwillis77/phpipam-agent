@@ -10,6 +10,7 @@
 class PingThread {
     const FUNCTION_NOT_CALLABLE = 10;
     const COULD_NOT_FORK = 15;
+    const IPC_SOCKET_FAILED = 20;
 
 	/**
 	* possible errors
@@ -19,13 +20,14 @@ class PingThread {
     private $errors = array(
         PingThread::FUNCTION_NOT_CALLABLE => 'You must specify a valid function name that can be called from the current scope.',
         PingThread::COULD_NOT_FORK => 'pcntl_fork() returned a status of -1. No new process was created',
+        PingThread::IPC_SOCKET_FAILED => 'socket_create_pair() returned a status of -1. No new process was created',
     );
 
 	/**
 	* callback for the function that should
 	* run as a separate thread
 	*
-	* @var callback
+	* @var callable
 	*/
     protected $runnable;
 
@@ -37,6 +39,13 @@ class PingThread {
     private $pid;
 
 	/**
+	* holds the parent process id
+	*
+	* @var integer
+	*/
+    private $ppid;
+
+	/**
 	* holds the exit code after the child dies
 	*/
     private $exitCode = -1;
@@ -45,6 +54,13 @@ class PingThread {
 	* holds type - needed for fping
 	*/
 	public $stype = "ping";
+
+	/**
+	 * holds sockets for fping IPC
+	 *
+	 * @var array
+	 */
+	private $sockets = [null, null];
 
 	/**
 	* checks if threading is supported by the current
@@ -70,10 +86,76 @@ class PingThread {
 	* @param callback $_runnable
 	*/
     public function __construct( $_runnable = null ) {
-		if( $_runnable !== null ) {
-			$this->setRunnable( $_runnable );
+		if (!is_null($_runnable))
+			$this->setRunnable($_runnable);
+
+		/* On Windows we need to use AF_INET */
+		$domain = (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') ?  STREAM_PF_INET : STREAM_PF_UNIX;
+		$this->sockets = stream_socket_pair($domain, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
+
+		if ($this->sockets === false)
+			throw new Exception($this->getError(PingThread::IPC_SOCKET_FAILED), PingThread::IPC_SOCKET_FAILED);
+
+		stream_set_blocking($this->sockets[0], 1);
+		stream_set_blocking($this->sockets[1], 1);
+	}
+
+	/**
+	 * Class destructor
+	 */
+	public function __destruct() {
+		if (!is_null($this->sockets[0]))
+			fclose($this->sockets[0]);
+
+		if (!is_null($this->sockets[1]))
+			fclose($this->sockets[1]);
+	}
+
+	/**
+	 * Send FPing response to parent process
+	 *
+	 * @param mixed $results
+	 * @return void
+	 */
+	private function ipc_send_data($results) {
+		if (is_null($this->sockets[0]) || is_null($this->sockets[1]))
+			return false;
+
+		// Send results
+		fclose($this->sockets[1]);
+		fwrite($this->sockets[0], json_encode($results) . "\n");
+		fclose($this->sockets[0]);
+
+		$this->sockets[0] = null;
+		$this->sockets[1] = null;
+
+		return true;
+	}
+
+	/**
+	 * Read FPing response from child process
+	 *
+	 * @return mixed
+	 */
+	public function ipc_recv_data() {
+		if (is_null($this->sockets[0]) || is_null($this->sockets[1]))
+			return null;
+
+		// Read results
+		fclose($this->sockets[0]);
+		$response = fgets($this->sockets[1]);
+		if (is_string($response) && !is_blank($response)) {
+			$response = pf_json_decode($response);
+		} else {
+			$response = null;
 		}
-    }
+		fclose($this->sockets[1]);
+
+		$this->sockets[0] = null;
+		$this->sockets[1] = null;
+
+		return $response;
+	}
 
 	/**
 	* sets the callback
@@ -106,7 +188,7 @@ class PingThread {
 	*
 	* can be called statically
 	*
-	* @param callback $_runnable
+	* @param string $_runnable
 	* @return boolean
 	*/
     public static function runnableOk( $_runnable ) {
@@ -122,7 +204,7 @@ class PingThread {
         return $this->pid;
     }
 
-	/**
+   	/**
 	* checks if the child thread is alive
 	*
 	* @return boolean
@@ -134,19 +216,39 @@ class PingThread {
             return true;
         } else {
             if (pcntl_wifexited($status) && $this->exitCode == -1) { // normal exit
-                $this->exitCode = pcntl_wexitstatus($status);
+            $this->exitCode = pcntl_wexitstatus($status);
             }
             return false;
         }
     }
 
 	/**
-	* return exit code of child (-1 if child is still alive)
+	* Blocks until the thread has exited
+	*
+	* @return mixed
+	*/
+    public function join($wait = true) {
+		$pid = pcntl_waitpid($this->pid, $status, $wait ? 0 : WNOHANG);
+
+		if ($pid === -1) {
+			// Error
+			return -1;
+		} elseif ($pid === 0) {
+			// child is still alive
+			return 0;
+		} else {
+			$this->exitCode = pcntl_wexitstatus($status);
+			return $pid;
+		}
+    }
+
+	/**
+	* return exit code of child (waits if still alive)
 	*
 	* @return int
 	*/
     public function getExitCode() {
-        $this->isAlive();
+        $this->join();
         return $this->exitCode;
     }
 
@@ -167,6 +269,9 @@ class PingThread {
         }
         else {
             // child
+            $this->pid = posix_getpid();//pid (child)
+            $this->ppid = posix_getppid();//pid (parent)
+
             pcntl_signal( SIGTERM, array( $this, 'signalHandler' ) );
             $arguments = func_get_args();
             if ( !empty( $arguments ) ) {
@@ -176,6 +281,8 @@ class PingThread {
                 call_user_func( $this->runnable );
             }
 
+            //and kill the child using posix_kill ( exit(0) duplicates headers!! )
+            posix_kill($this->pid , SIGKILL);
             exit( 0 );
         }
     }
@@ -189,7 +296,6 @@ class PingThread {
 	* @return void
 	*/
     public function start_fping() {
-		$status = 0;
 		$results = null;
 		$pid = pcntl_fork();
 
@@ -210,15 +316,7 @@ class PingThread {
 				$results = call_user_func( $this->runnable );
 			}
 
-			$pipe = "/tmp/pipe_".$this->pid;//pid is known by parent
-
-			if(!file_exists($pipe)) {//child talks to parent using this pipe
-				umask(0);
-				posix_mkfifo($pipe, 0600);
-			}
-			//we have to open the pipe and send the data serialized
-			$pipe_descriptor = fopen($pipe, 'w');
-			fwrite($pipe_descriptor, serialize( $results ) );
+			$this->ipc_send_data($results);
 
 			//and kill the child using posix_kill ( exit(0) duplicates headers!! )
 			posix_kill( $this->pid , SIGKILL);
@@ -234,13 +332,13 @@ class PingThread {
 	* @param boolean $_wait
 	*/
     public function stop( $_signal = SIGKILL, $_wait = false ) {
-        if( $this->isAlive() ) {
-            posix_kill( $this->pid, $_signal );
-            if( $_wait ) {
-                pcntl_waitpid( $this->pid, $status = 0 );
-            }
-        }
-    }
+		if ($this->join(false) === 0) {
+			posix_kill($this->pid, $_signal);
+			if ($_wait) {
+				$this->join();
+			}
+		}
+	}
 
 	/**
 	* alias of stop();
